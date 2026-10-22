@@ -273,10 +273,6 @@ Der Skill berechnet den 6-stelligen Code selbst (RFC 6238, nur Standardbibliothe
 
 MIT-Lizenz. Copyright (c) 2022 Ross Stewart; lokale Änderungen Copyright (c) 2026 castNavidrome-Mitwirkende. Siehe [LICENSE](LICENSE) und [CREDITS.md](CREDITS.md).
 
-## Noch nicht veröffentlicht
-
-Dieses Repository ist für die Veröffentlichung als Fork von AskNavidrome vorbereitet, wird aber **nicht veröffentlicht**. Alles ist bereit und wartet auf Ihre ausdrückliche Freigabe.
-
 ## Disclaimer
 
 Dieses Projekt ist vibe gecoded: es wurde schnell mit KI-Unterstützung zusammengestellt und hat keine gründliche Sicherheits- oder Code-Prüfung durchlaufen. Betrachten Sie es als Ausgangspunkt, nicht als produktionsreife Software. Secrets und persönliche Daten sind über `.gitignore` von der Versionskontrolle ausgeschlossen, aber Sie sind selbst dafür verantwortlich, alles, was Sie ausführen, zu prüfen und zu validieren.

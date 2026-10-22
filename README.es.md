@@ -271,11 +271,7 @@ El skill calcula el código de 6 dígitos por sí mismo (RFC 6238, solo bibliote
 
 ## Licencia
 
-Licencia MIT. Copyright (c) 2022 Ross Stewart; modificaciones locales copyright (c) 2026 colaboradores de castNavidrome. Consulta [LICENSE](LICENSE) y [CREDITS.md](CREDITS.md).
-
-## Aún no publicado
-
-Este repositorio está preparado para su publicación como un fork de AskNavidrome, pero **no se publica**. Todo está listo y espera tu autorización explícita para publicar.
+Licencia MIT. Copyright (c) 2022 Ross Stewart; modificaciones locales copyright (c) 2026 colaboradores de castNavidrome. Consulta [LICENSE](LICENSE) und [CREDITS.md](CREDITS.md).
 
 ## Disclaimer
 

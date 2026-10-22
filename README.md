@@ -273,10 +273,6 @@ The skill computes the 6-digit code itself (RFC 6238, standard library only, no 
 
 MIT License. Copyright (c) 2022 Ross Stewart; local modifications copyright (c) 2026 castNavidrome contributors. See [LICENSE](LICENSE) and [CREDITS.md](CREDITS.md).
 
-## Not yet released
-
-This repository is prepared for publication as a fork of AskNavidrome but is **not published**. Everything is ready and waits for your explicit release approval.
-
 ## Disclaimer
 
 This project is vibe coded: it was assembled quickly with AI assistance and has not undergone a thorough security or code review. Treat it as a starting point, not production-ready software. Secrets and personal data are excluded from version control via `.gitignore`, but you are responsible for reviewing and validating anything you run.
