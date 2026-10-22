@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Local configuration & secrets (never commit)
+.env
+.env.local
+.secrets/
+*.cookies
+
+# Runtime state (device registry, Amazon session, Tailscale state)
+state/
+ts/
+
+# Sphinx / docs build output (sphinx/ is the source; docs/ is regenerated)
+docs/
+sphinx/_build/
+sphinx/_templates/
+
+# Docker / build
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db

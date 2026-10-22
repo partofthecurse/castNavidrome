@@ -1,0 +1,500 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "zero mukke",
+      "intents": [
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PauseIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.ResumeIntent",
+          "samples": []
+        },
+        {
+          "name": "castNavidromePlayMusicByArtist",
+          "slots": [
+            {
+              "name": "artist",
+              "type": "AMAZON.Artist"
+            }
+          ],
+          "samples": [
+            "play songs by {artist}",
+            "play music by {artist}"
+          ]
+        },
+        {
+          "name": "AMAZON.NextIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.PreviousIntent",
+          "samples": []
+        },
+        {
+          "name": "castNavidromePlayAlbumByArtist",
+          "slots": [
+            {
+              "name": "album",
+              "type": "AMAZON.MusicAlbum"
+            },
+            {
+              "name": "artist",
+              "type": "AMAZON.Artist"
+            }
+          ],
+          "samples": [
+            "play the album {album}",
+            "play the album {album} by {artist}"
+          ]
+        },
+        {
+          "name": "castNavidromePlayPlaylist",
+          "slots": [
+            {
+              "name": "playlist",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "play the playlist {playlist}",
+            "start the playlist {playlist}",
+            "play {playlist}",
+            "give me the playlist {playlist}"
+          ]
+        },
+        {
+          "name": "castNavidromeSongDetails",
+          "slots": [],
+          "samples": [
+            "what is playing",
+            "what is playing right now",
+            "who is singing",
+            "who sings this song",
+            "which album is this song from",
+            "which album is this",
+            "which artist is this",
+            "which band is this",
+            "which song is playing"
+          ]
+        },
+        {
+          "name": "castNavidromeStarSong",
+          "slots": [],
+          "samples": [
+            "add this song to my favourites",
+            "mark this song as a favourite",
+            "remember this song"
+          ]
+        },
+        {
+          "name": "castNavidromeUnstarSong",
+          "slots": [],
+          "samples": [
+            "remove this song from my favourites",
+            "remove the favourite for this song",
+            "I do not like this song any more"
+          ]
+        },
+        {
+          "name": "castNavidromePlaySongByArtist",
+          "slots": [
+            {
+              "name": "song",
+              "type": "AMAZON.MusicRecording"
+            },
+            {
+              "name": "artist",
+              "type": "AMAZON.Artist"
+            }
+          ],
+          "samples": [
+            "play the song {song} by {artist}",
+            "play the track {song} by {artist}",
+            "play {song} by {artist}"
+          ]
+        },
+        {
+          "name": "castNavidromePlaySongByArtistQuiet",
+          "slots": [
+            {
+              "name": "song",
+              "type": "AMAZON.MusicRecording"
+            },
+            {
+              "name": "artist",
+              "type": "AMAZON.Artist"
+            }
+          ],
+          "samples": [
+            "play the song {song} by {artist} quietly",
+            "play the track {song} by {artist} quietly"
+          ]
+        },
+        {
+          "name": "castNavidromePlayFavouriteSongs",
+          "slots": [],
+          "samples": [
+            "play my favourite songs",
+            "play my favourites"
+          ]
+        },
+        {
+          "name": "castNavidromePlayMusicByGenre",
+          "slots": [
+            {
+              "name": "genre",
+              "type": "AMAZON.Genre"
+            }
+          ],
+          "samples": [
+            "play {genre} music",
+            "play songs from the genre {genre}"
+          ]
+        },
+        {
+          "name": "castNavidromePlayMusicRandom",
+          "slots": [],
+          "samples": [
+            "play random music",
+            "play random songs",
+            "play a random selection of music"
+          ]
+        },
+        {
+          "name": "castNavidromeRandomiseQueue",
+          "slots": [],
+          "samples": [
+            "shuffle the queue",
+            "play the queue in random order"
+          ]
+        },
+        {
+          "name": "castNavidromeShufflePlaylist",
+          "slots": [
+            {
+              "name": "playlist",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "play the playlist {playlist} in random order",
+            "shuffle the playlist {playlist}"
+          ]
+        },
+        {
+          "name": "castNavidromePlaySong",
+          "slots": [
+            {
+              "name": "song",
+              "type": "AMAZON.MusicRecording"
+            }
+          ],
+          "samples": [
+            "play the song {song}",
+            "play {song}"
+          ]
+        },
+        {
+          "name": "castNavidromePlayMusicByDecade",
+          "slots": [
+            {
+              "name": "decade",
+              "type": "decade"
+            },
+            {
+              "name": "genre",
+              "type": "AMAZON.Genre"
+            }
+          ],
+          "samples": [
+            "play music from the {decade}",
+            "play music from the decade {decade}",
+            "play {genre} music from the {decade}"
+          ]
+        },
+        {
+          "name": "castNavidromeListPlaylists",
+          "samples": [
+            "what playlists do I have",
+            "show me my playlists",
+            "list my playlists",
+            "what playlists are there"
+          ]
+        },
+        {
+          "name": "castNavidromeHearMorePlaylists",
+          "samples": [
+            "hear more",
+            "more",
+            "more playlists"
+          ]
+        },
+        {
+          "name": "castNavidromeFindPlaylist",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "find a playlist about {query}",
+            "search a playlist with {query}",
+            "give me a playlist about {query}"
+          ]
+        },
+        {
+          "name": "castNavidromeHelpTopic",
+          "slots": [
+            {
+              "name": "topic",
+              "type": "help_topic"
+            }
+          ],
+          "samples": [
+            "help with {topic}",
+            "explain {topic}",
+            "what can I do with {topic}"
+          ]
+        },
+        {
+          "name": "castNavidromePlaySearch",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "play {query}",
+            "give me {query}",
+            "I want to hear {query}"
+          ]
+        },
+        {
+          "name": "castNavidromePlayRadio",
+          "slots": [
+            {
+              "name": "station",
+              "type": "radio_station"
+            }
+          ],
+          "samples": [
+            "play the radio",
+            "play radio",
+            "play the radio station {station}",
+            "turn on the radio"
+          ]
+        }
+      ],
+      "types": [
+        {
+          "name": "playlist_names",
+          "values": [
+            {
+              "name": {
+                "value": "nach der Party ist vor der Party"
+              }
+            },
+            {
+              "name": {
+                "value": "Discover Weekly Archive"
+              }
+            },
+            {
+              "name": {
+                "value": "Elektrobumms"
+              }
+            },
+            {
+              "name": {
+                "value": "Play-Rewind"
+              }
+            },
+            {
+              "name": {
+                "value": "reinhören"
+              }
+            }
+          ]
+        },
+        {
+          "name": "decade",
+          "values": [
+            {
+              "name": {
+                "value": "1920s"
+              }
+            },
+            {
+              "name": {
+                "value": "1930s"
+              }
+            },
+            {
+              "name": {
+                "value": "1940s"
+              }
+            },
+            {
+              "name": {
+                "value": "1950s"
+              }
+            },
+            {
+              "name": {
+                "value": "1960s"
+              }
+            },
+            {
+              "name": {
+                "value": "1970s"
+              }
+            },
+            {
+              "name": {
+                "value": "1980s"
+              }
+            },
+            {
+              "name": {
+                "value": "1990s"
+              }
+            },
+            {
+              "name": {
+                "value": "2000s"
+              }
+            },
+            {
+              "name": {
+                "value": "2010s"
+              }
+            },
+            {
+              "name": {
+                "value": "2020s"
+              }
+            }
+          ]
+        },
+        {
+          "name": "help_topic",
+          "values": [
+            {
+              "name": {
+                "value": "Playing music",
+                "synonyms": [
+                  "Music",
+                  "Songs",
+                  "Tracks"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Finding play lists",
+                "synonyms": [
+                  "Play lists",
+                  "Playlists",
+                  "Finding playlists"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Playback controls",
+                "synonyms": [
+                  "Controls",
+                  "Playback",
+                  "Transport"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "radio_station",
+          "values": [
+            {
+              "name": {
+                "value": "default",
+                "synonyms": [
+                  "Standard",
+                  "Default radio"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "pop",
+                "synonyms": [
+                  "Pop music",
+                  "Pop radio"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "rock",
+                "synonyms": [
+                  "Rock music",
+                  "Rock radio"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "jazz",
+                "synonyms": [
+                  "Jazz music",
+                  "Jazz radio"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "classical",
+                "synonyms": [
+                  "Classic",
+                  "Classical music"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "chillout",
+                "synonyms": [
+                  "Chill",
+                  "Chill music"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
