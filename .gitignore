@@ -27,3 +27,6 @@ sphinx/_templates/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local task list (not part of the release)
+to-do.md
