@@ -213,6 +213,69 @@ For Alexa to reach your skill and for Navidrome to stream covers, both need a pu
 
 Tailscale Funnel terminates TLS at the Tailscale edge, so Alexa's HTTPS requirement is satisfied without you managing certificates.
 
+### Alternative: Tailscale as a sidecar container
+
+If you do not want to install Tailscale on the host, run it as a sidecar container instead. castNavidrome then shares the Tailscale container's network namespace (`network_mode: service:tailscale`), so it is reachable over the Tailscale Funnel address without host-level Tailscale.
+
+Add a `tailscale` service to your `docker-compose.yml`:
+
+```yaml
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+    restart: unless-stopped
+
+  castnavidrome:
+    container_name: castnavidrome
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: castnavidrome:local
+    network_mode: service:tailscale
+    environment:
+      - NAVI_SKILL_ID=${NAVI_SKILL_ID}
+      - NAVI_URL=https://yourdevice.tailxxxxyyyy.ts.net
+      - NAVI_BASE_URL=https://yourdevice.tailxxxxyyyy.ts.net
+      - NAVI_USER=${NAVI_USER}
+      - NAVI_PASS=${NAVI_PASS}
+      - NAVI_PORT=443
+      - NAVI_API_PATH=/rest
+      - NAVI_API_VER=1.16.1
+      - NAVI_SONG_COUNT=50
+      - NAVI_DEBUG=0
+      - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
+      - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
+      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
+      - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
+      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
+      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
+      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
+      - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
+    volumes:
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./state:/var/lib/castnavidrome
+    restart: unless-stopped
+
+volumes:
+  tailscale-state:
+```
+
+Authorize the Tailscale device (via the Tailscale admin console or `docker exec tailscale tailscale up --authkey=...`), then enable Funnel:
+
+```bash
+docker exec tailscale tailscale funnel on 443
+```
+
+The rest of the configuration (`NAVI_URL`, `NAVI_BASE_URL`, Alexa endpoint) stays the same as in the host-based approach above.
+
 The invocation name is the same in every locale and is set with `NAVI_ALEXA_SKILL_NAME`.
 
 **Tip:** Choose an invocation name that has nothing to do with a music service (not "Spotify", "Apple Music", "Amazon Music", "Navidrome", …). Otherwise Alexa may try to route your request to another music skill instead of castNavidrome, and your own music collection will not be played.
