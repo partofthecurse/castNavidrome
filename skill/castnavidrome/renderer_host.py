@@ -42,7 +42,7 @@ DEFAULT_NAME_PREFIX = ''
 # The language of the voice commands that are sent to the Alexa devices.
 # It has to be the language that the devices are set to, otherwise they do
 # not understand the commands.
-DEFAULT_ALEXA_LOCALE = 'de-DE'
+DEFAULT_ALEXA_LOCALE = 'en-US'
 
 # How the renderers announce the tracks they play.
 #

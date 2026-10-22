@@ -86,7 +86,7 @@ services:
       - NAVI_DEBUG=0
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
       - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
-      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-de-DE}
+      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
       - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
       - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
@@ -132,7 +132,7 @@ services:
       - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
       - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
-      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-de-DE}
+      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
       - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
       - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
@@ -181,7 +181,41 @@ Alle Umgebungsvariablen siehe [Konfiguration](#konfiguration).
 6. Legen Sie den Endpunkt auf die HTTPS-URL dieses Webdieners (Standard-Region) fest und speichern Sie ihn.
 7. Bauen Sie das Modell und fügen Sie den Skill Ihren Echo-Geräten als Entwicklungsskill hinzu.
 
+### Skill-ID
+
+Die `NAVI_SKILL_ID` ist die eindeutige Kennung Ihres Alexa-Skills. Sie finden sie in der [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask):
+
+1. Öffnen Sie Ihren Skill in der Developer Console.
+2. Gehen Sie zu **Skill → Information** (oder dem Tab **Usage** in manchen Konsolen).
+3. Kopieren Sie die **Skill-ID** (sieht aus wie `amzn1.ask.skill.xxxxxxxx-…`).
+4. Setzen Sie sie als `NAVI_SKILL_ID` in Ihrer `.env`.
+
+Wenn `NAVI_SKILL_ID` nicht gesetzt ist, antwortet der Webdienst auf jede Skill-Anfrage.
+
+### Externe URL mit Tailscale Funnel
+
+Damit Alexa Ihren Skill erreichen kann und Navidrome Cover streamen kann, benötigen beide eine öffentliche HTTPS-URL. Sie können eine mit [Tailscale Funnel](https://tailscale.com/kb/1216/funnel) erstellen, ohne Ports im Router zu öffnen:
+
+1. Installieren Sie Tailscale auf dem Host, auf dem castNavidrome und Navidrome laufen.
+2. Exponieren Sie den castNavidrome-Webdienst:
+   ```bash
+   tailscale funnel on 443
+   ```
+   (oder den Port, auf dem der Container lauscht, zum Beispiel `8000`).
+3. Exponieren Sie Navidrome auf die gleiche Weise, falls es nicht bereits aus dem Internet erreichbar ist:
+   ```bash
+   tailscale funnel on 443
+   ```
+4. Tailscale gibt Ihnen einen DNS-Namen wie `yourdevice.tailxxxxyyyy.ts.net`. Verwenden Sie ihn als:
+   - `NAVI_URL` — die Navidrome-Server-URL, zum Beispiel `https://yourdevice.tailxxxxyyyy.ts.net`
+   - `NAVI_BASE_URL` — die öffentliche URL dieses Skills, zum Beispiel `https://yourdevice.tailxxxxyyyy.ts.net`
+   - Den HTTPS-Endpunkt in der Alexa Developer Console, der auf Ihren castNavidrome-Dienst zeigt.
+
+Tailscale Funnel beendet TLS am Tailsdale Edge, sodass Alexas HTTPS-Anforderung erfüllt ist, ohne dass Sie Zertifikate verwalten müssen.
+
 Der Invocation-Name ist in allen Locales identisch und wird mit `NAVI_ALEXA_SKILL_NAME` festgelegt.
+
+**Tipp:** Wählen Sie einen Invocation-Namen, der nichts mit einem Musikdienst zu tun hat (nicht "Spotify", "Apple Music", "Amazon Music", "Navidrome", …). Sonst versucht Alexa möglicherweise, Ihre Anfrage an einen anderen Music Skill weiterzuleiten, und Ihre eigene Musiksammlung wird nicht abgespielt.
 
 ## Docker-Image bauen
 
@@ -215,9 +249,9 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_BASE_URL` | Öffentliche URL dieses Skills (wird für Cover-Art auf Alexa-Karten verwendet) | `https://castnavidrome.example.test` |
 | `NAVI_DEBUG` | Debug-Level (0–3) | `0` |
 | `NAVI_DEBUG_TOKEN` | Token zum Schutz der `/debug/*`-Endpunkte | — |
-| `NAVI_ALEXA_API_KEY` | API-Key im Header `X-API-Key` für `/api/alexa/*` | `openssl rand -hex 32` |
+| `NAVI_ALEXA_API_KEY` | API-Key im Header `X-API-Key` für `/api/alexa/*`. Selbst erzeugen, zum Beispiel mit `openssl rand -hex 32`. | `openssl rand -hex 32` |
 | `NAVI_ALEXA_DOMAIN` | Amazon-Domain | `amazon.com` |
-| `NAVI_ALEXA_LOCALE` | Locale der Skill-Antworten und Sprachbefehle | `de-DE` |
+| `NAVI_ALEXA_LOCALE` | Locale der Skill-Antworten und Sprachbefehle | `en-US` |
 | `NAVI_ALEXA_SKILL_NAME` | Invocation-Name des Skills | `castnavidrome` |
 | `NAVI_ALEXA_COOKIE_FILE` | Pfad zu einer Alexa-Cookie-Datei (Cookie-Fallback) | `/run/secrets/alexa.cookies` |
 | `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` | Amazon-Login mit TOTP/2FA (ersetzt die Cookie-Datei) | — |

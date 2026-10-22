@@ -30,3 +30,6 @@ Thumbs.db
 
 # Local task list (not part of the release)
 to-do.md
+
+# Tests
+tests/
