@@ -263,7 +263,7 @@ Para usar el flujo automático de inicio de sesión de Amazon en lugar del archi
 4. Amazon muestra un código QR y, por lo general, una opción para revelar la clave secreta como texto.
 5. Copie ese secreto Base32 (solo letras y dígitos, por ejemplo `JBSWY3DPEHPK3PXP`) y configúrelo como `NAVI_AMAZON_TOTP_SECRET`.
 
-El skill calcula el código de 6 dígitos por sí mismo (RFC 6238, solo biblioteca estándar, sin dependencia de `pyotp`). Si Amazon muestra un CAPTCHA o solicita un paso de verificación adicional (SMS, código de correo electrónico), el inicio de sesión automático falla con un error claro — use `NAVI_ALEXA_COOKIE_FILE` como alternativa en ese caso.
+El skill calcula el código de 6 dígitos por sí mismo (RFC 6238, solo biblioteca estándar, sin dependencia de `pyotp`).
 
 ## Seguridad
 - El archivo de cookies de Alexa y cualquier `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` son sensibles. Mantén `.secrets/` fuera del control de versiones (está en `.gitignore`) y montalo de solo lectura.
@@ -276,3 +276,7 @@ Licencia MIT. Copyright (c) 2022 Ross Stewart; modificaciones locales copyright 
 ## Aún no publicado
 
 Este repositorio está preparado para su publicación como un fork de AskNavidrome, pero **no se publica**. Todo está listo y espera tu autorización explícita para publicar.
+
+## Disclaimer
+
+Este proyecto está vibe coded: se ensambló rápidamente con asistencia de IA y no ha pasado por una revisión de seguridad o de código exhaustiva. Trátalo como un punto de partida, no como software listo para producción. Los secretos y los datos personales están excluidos del control de versiones mediante `.gitignore`, pero eres responsable de revisar y validar todo lo que ejecutes.

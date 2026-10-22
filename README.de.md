@@ -263,7 +263,7 @@ Um den automatischen Amazon-Login-Flow statt der manuellen Cookie-Datei zu nutze
 4. Amazon zeigt einen QR-Code und in der Regel eine Option, den Geheimschlüssel als Text anzuzeigen.
 5. Kopiere diesen Base32-Schlüssel (Buchstaben und Ziffern, z. B. `JBSWY3DPEHPK3PXP`) und setze ihn als `NAVI_AMAZON_TOTP_SECRET`.
 
-Der Skill berechnet den 6-stelligen Code selbst (RFC 6238, nur Standardbibliothek, keine `pyotp`-Abhängigkeit). Zeigt Amazon ein CAPTCHA oder fordert einen zusätzlichen Verifizierungsschritt (SMS, E-Mail-Code), schlägt der automatische Login mit einer klaren Fehlermeldung fehl — im Fallback `NAVI_ALEXA_COOKIE_FILE` verwenden.
+Der Skill berechnet den 6-stelligen Code selbst (RFC 6238, nur Standardbibliothek, keine `pyotp`-Abhängigkeit).
 
 ## Sicherheit
 - Die Alexa-Cookie-Datei sowie `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` sind sensibel. Halten Sie `.secrets/` aus der Versionskontrolle heraus (steht in `.gitignore`) und binden Sie es schreibgeschützt ein.
@@ -276,3 +276,7 @@ MIT-Lizenz. Copyright (c) 2022 Ross Stewart; lokale Änderungen Copyright (c) 20
 ## Noch nicht veröffentlicht
 
 Dieses Repository ist für die Veröffentlichung als Fork von AskNavidrome vorbereitet, wird aber **nicht veröffentlicht**. Alles ist bereit und wartet auf Ihre ausdrückliche Freigabe.
+
+## Disclaimer
+
+Dieses Projekt ist vibe gecoded: es wurde schnell mit KI-Unterstützung zusammengestellt und hat keine gründliche Sicherheits- oder Code-Prüfung durchlaufen. Betrachten Sie es als Ausgangspunkt, nicht als produktionsreife Software. Secrets und persönliche Daten sind über `.gitignore` von der Versionskontrolle ausgeschlossen, aber Sie sind selbst dafür verantwortlich, alles, was Sie ausführen, zu prüfen und zu validieren.
