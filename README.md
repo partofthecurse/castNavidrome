@@ -275,7 +275,7 @@ If you prefer not to use the automatic Amazon login (or it fails because of CAPT
 4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
 5. Mount the file read-only into the container (see the `docker-compose.yml` example).
 
-![Cookie export screenshot placeholder](docs/images/cookie-export.png)
+![Alexa cookie export](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 
 ## Security
 - The Alexa cookie file and any `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` are sensitive. Keep `.secrets/` out of version control (it is in `.gitignore`) and mount it read-only.

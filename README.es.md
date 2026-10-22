@@ -275,7 +275,7 @@ Si prefieres no usar el inicio de sesión automático de Amazon (o falla debido 
 4. Guarda el archivo como `.secrets/alexa.cookies` (o cualquier ruta que prefieras) y configura `NAVI_ALEXA_COOKIE_FILE` a esa ruta.
 5. Monta el archivo de solo lectura en el contenedor (ver el ejemplo de `docker-compose.yml`).
 
-![Captura de pantalla de la exportación de cookies](docs/images/cookie-export.png)
+![Exportación de cookies de Alexa](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 
 ## Seguridad
 - El archivo de cookies de Alexa y cualquier `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` son sensibles. Mantén `.secrets/` fuera del control de versiones (está en `.gitignore`) y montalo de solo lectura.

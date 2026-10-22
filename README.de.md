@@ -275,7 +275,7 @@ Wenn du den automatischen Amazon-Login nicht nutzen möchtest (oder er scheitert
 4. Speichere die Datei als `.secrets/alexa.cookies` (oder einen anderen Pfad deiner Wahl) und setze `NAVI_ALEXA_COOKIE_FILE` auf diesen Pfad.
 5. Binde die Datei schreibgeschützt in den Container ein (siehe `docker-compose.yml`-Beispiel).
 
-![Screenshot des Cookie-Exports](docs/images/cookie-export.png)
+![Alexa-Cookie-Export](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 
 ## Sicherheit
 - Die Alexa-Cookie-Datei sowie `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` sind sensibel. Halten Sie `.secrets/` aus der Versionskontrolle heraus (steht in `.gitignore`) und binden Sie es schreibgeschützt ein.
