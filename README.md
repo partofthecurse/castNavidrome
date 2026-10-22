@@ -265,6 +265,18 @@ To use the automatic Amazon login flow instead of the manual cookie file, Amazon
 
 The skill computes the 6-digit code itself (RFC 6238, standard library only, no `pyotp` dependency).
 
+### Alexa Cookie File (manual fallback)
+
+If you prefer not to use the automatic Amazon login (or it fails because of CAPTCHA or an extra verification step), you can provide an existing Alexa session cookie file instead.
+
+1. Open your Amazon domain (for example https://www.amazon.de) in the browser and sign in.
+2. Open the Developer Tools (F12), go to **Application → Cookies** and select your Amazon domain.
+3. Copy the cookies as `name=value` pairs, one per line. Make sure the `csrf` cookie is included.
+4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
+5. Mount the file read-only into the container (see the `docker-compose.yml` example).
+
+![Cookie export screenshot placeholder](docs/images/cookie-export.png)
+
 ## Security
 - The Alexa cookie file and any `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` are sensitive. Keep `.secrets/` out of version control (it is in `.gitignore`) and mount it read-only.
 - Do not expose the `/api/alexa/*` or `/debug/*` endpoints to the public internet without `NAVI_ALEXA_API_KEY` and HTTPS.

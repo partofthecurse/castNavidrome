@@ -265,6 +265,18 @@ Para usar el flujo automático de inicio de sesión de Amazon en lugar del archi
 
 El skill calcula el código de 6 dígitos por sí mismo (RFC 6238, solo biblioteca estándar, sin dependencia de `pyotp`).
 
+### Archivo de cookies de Alexa (fallback manual)
+
+Si prefieres no usar el inicio de sesión automático de Amazon (o falla debido a un CAPTCHA o un paso de verificación adicional), puedes proporcionar un archivo de cookies de sesión de Alexa existente en su lugar.
+
+1. Abre tu dominio de Amazon (por ejemplo https://www.amazon.de) en el navegador e inicia sesión.
+2. Abre las Herramientas de desarrollo (F12), ve a **Aplicación → Cookies** y selecciona tu dominio de Amazon.
+3. Copia las cookies como pares `name=value`, una por línea. Asegúrate de incluir la cookie `csrf`.
+4. Guarda el archivo como `.secrets/alexa.cookies` (o cualquier ruta que prefieras) y configura `NAVI_ALEXA_COOKIE_FILE` a esa ruta.
+5. Monta el archivo de solo lectura en el contenedor (ver el ejemplo de `docker-compose.yml`).
+
+![Captura de pantalla de la exportación de cookies](docs/images/cookie-export.png)
+
 ## Seguridad
 - El archivo de cookies de Alexa y cualquier `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` son sensibles. Mantén `.secrets/` fuera del control de versiones (está en `.gitignore`) y montalo de solo lectura.
 - No expongas los puntos finales `/api/alexa/*` o `/debug/*` a Internet público sin `NAVI_ALEXA_API_KEY` y HTTPS.
