@@ -253,9 +253,19 @@ castNavidrome behält das Upstream-Verhalten von AskNavidrome bei und fügt hinz
 
 Jedes übernommene Feature und sein Ursprung sind in [CREDITS.md](CREDITS.md) mit den vorgenommenen lokalen Änderungen aufgelistet.
 
-## Sicherheit
+### TOTP-Geheimnis (Amazon Zwei-Schritt-Verifizierung)
 
-- Der Navidrome-Benutzername und das -Passwort werden aus Umgebungsvariablen oder Docker-Secrets gelesen und vom Dienst im Klartext gespeichert. Verwenden Sie kein Administratorkonto für Navidrome und kein Passwort, das Sie sonstwo wiederverwenden.
+Um den automatischen Amazon-Login-Flow statt der manuellen Cookie-Datei zu nutzen, muss Amazon während der Anmeldung einen TOTP-Code abfragen. Das `NAVI_AMAZON_TOTP_SECRET` erhältst du so:
+
+1. Öffne die Amazon-Kontoeinstellungen für deine Domain (z. B. https://www.amazon.de/gp/css/account/security).
+2. Gehe zu **Einstellungen für die Zwei-Schritt-Verifizierung (2SV)**.
+3. Füge eine **Authenticator App** hinzu oder verwalte sie.
+4. Amazon zeigt einen QR-Code und in der Regel eine Option, den Geheimschlüssel als Text anzuzeigen.
+5. Kopiere diesen Base32-Schlüssel (Buchstaben und Ziffern, z. B. `JBSWY3DPEHPK3PXP`) und setze ihn als `NAVI_AMAZON_TOTP_SECRET`.
+
+Der Skill berechnet den 6-stelligen Code selbst (RFC 6238, nur Standardbibliothek, keine `pyotp`-Abhängigkeit). Zeigt Amazon ein CAPTCHA oder fordert einen zusätzlichen Verifizierungsschritt (SMS, E-Mail-Code), schlägt der automatische Login mit einer klaren Fehlermeldung fehl — im Fallback `NAVI_ALEXA_COOKIE_FILE` verwenden.
+
+## Sicherheit
 - Die Alexa-Cookie-Datei sowie `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` sind sensibel. Halten Sie `.secrets/` aus der Versionskontrolle heraus (steht in `.gitignore`) und binden Sie es schreibgeschützt ein.
 - Stellen Sie die Endpunkte `/api/alexa/*` und `/debug/*` nicht ohne `NAVI_ALEXA_API_KEY` und HTTPS ins öffentliche Internet.
 

@@ -253,9 +253,19 @@ castNavidrome conserva el comportamiento upstream de AskNavidrome y agrega:
 
 Cada característica adoptada y su origen están listados en [CREDITS.md](CREDITS.md) con los cambios locales aplicados.
 
-## Seguridad
+### Secreto TOTP (verificación en dos pasos de Amazon)
 
-- El nombre de usuario y la contraseña de Navidrome se leen de variables de entorno o secretos de Docker y el servicio los almacena en texto claro. No uses una cuenta de administrador de Navidrome ni una contraseña que reutilices en otro servicio.
+Para usar el flujo automático de inicio de sesión de Amazon en lugar del archivo de cookies manual, Amazon debe solicitar un código TOTP durante el inicio de sesión. Para obtener el `NAVI_AMAZON_TOTP_SECRET`:
+
+1. Abra la configuración de la cuenta de Amazon para su dominio (por ejemplo https://www.amazon.de/gp/css/account/security).
+2. Vaya a **Configuración de verificación en dos pasos (2SV)**.
+3. Agregue o administre una **aplicación de autenticación**.
+4. Amazon muestra un código QR y, por lo general, una opción para revelar la clave secreta como texto.
+5. Copie ese secreto Base32 (solo letras y dígitos, por ejemplo `JBSWY3DPEHPK3PXP`) y configúrelo como `NAVI_AMAZON_TOTP_SECRET`.
+
+El skill calcula el código de 6 dígitos por sí mismo (RFC 6238, solo biblioteca estándar, sin dependencia de `pyotp`). Si Amazon muestra un CAPTCHA o solicita un paso de verificación adicional (SMS, código de correo electrónico), el inicio de sesión automático falla con un error claro — use `NAVI_ALEXA_COOKIE_FILE` como alternativa en ese caso.
+
+## Seguridad
 - El archivo de cookies de Alexa y cualquier `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` son sensibles. Mantén `.secrets/` fuera del control de versiones (está en `.gitignore`) y montalo de solo lectura.
 - No expongas los puntos finales `/api/alexa/*` o `/debug/*` a Internet público sin `NAVI_ALEXA_API_KEY` y HTTPS.
 
