@@ -16,13 +16,12 @@ venv/
 state/
 ts/
 
-# Sphinx / docs build output (sphinx/ is the source; docs/ is regenerated)
-docs/
+# Sphinx / docs build output (sphinx/ is the source; _build/ is regenerated)
 sphinx/_build/
 sphinx/_templates/
+# docs/ is tracked (Wiki content); sphinx/_build/ is not
 
 # Docker / build
-.dockerignore
 
 # OS
 .DS_Store
