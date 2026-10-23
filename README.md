@@ -10,6 +10,7 @@ Alexa skill that bridges Alexa devices to a Subsonic API compatible media server
 - Shuffle the play queue, star/unstar songs, show details of the current track.
 - Radio streams and playlist discovery ("play more playlists like this", "find a playlist").
 - Help topics and spoken answers in the language of the Echo device.
+- On Echo Show devices, the cover of the current album is shown during playback.
 - Optional UPnP MediaRenderer: every selected Alexa device appears as its own renderer in Navidrome, so DLNA clients (Symfonium, Supersonic, …) can send tracks to individual Echoes.
 - Optional Amazon login with username, password and TOTP/2FA (replaces manual cookie copying).
 - Runs directly with Python or in a Docker container (recommended).

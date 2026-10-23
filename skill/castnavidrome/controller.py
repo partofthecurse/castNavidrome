@@ -33,6 +33,32 @@ NAVI_BASE_URL = os.getenv('NAVI_BASE_URL', '')
 #
 
 
+def device_has_screen(handler_input: HandlerInput) -> bool:
+    """Return True when the device has a screen, for example an Echo Show.
+
+    The presence of the ``display`` interface in ``supported_interfaces``
+    means that Alexa can render images on the device.  Only then is the cover
+    art of the current track shown during playback.
+
+    :param handler_input: The Amazon Alexa HandlerInput object
+    :return: True if the device has a screen
+    :rtype: bool
+    """
+    try:
+        device = handler_input.request_envelope.context.system.device
+    except AttributeError:
+        return False
+
+    if device is None:
+        return False
+
+    supported = getattr(device, 'supported_interfaces', None)
+    if supported is None:
+        return False
+
+    return getattr(supported, 'display', None) is not None
+
+
 def start_playback(mode: str, text: str, card_data: dict, track_details: Track, handler_input: HandlerInput) -> Response:
     """Function to play audio.
 
@@ -55,18 +81,27 @@ def start_playback(mode: str, text: str, card_data: dict, track_details: Track, 
     :return: Amazon Alexa Response class
     :rtype: Response
     """
-    metadata = AudioItemMetadata(
-        title=track_details.title,
-        subtitle=track_details.artist,
-        art=display.Image(
-                content_description=track_details.title,
-                sources=[
-                    display.ImageInstance(
-                        url=get_art_url(NAVI_BASE_URL, track_details.cover_art)
-                    )
-                ]
-            )
-    )
+    art_url = get_art_url(NAVI_BASE_URL, track_details.cover_art)
+
+    if device_has_screen(handler_input) and art_url:
+        # Devices with a screen (for example an Echo Show) show the cover art
+        # of the current track during playback, as a small image and as the
+        # background of the now-playing screen.
+        cover_image = display.Image(
+            content_description=track_details.title,
+            sources=[display.ImageInstance(url=art_url)],
+        )
+        metadata = AudioItemMetadata(
+            title=track_details.title,
+            subtitle=track_details.artist,
+            art=cover_image,
+            background_image=cover_image,
+        )
+    else:
+        metadata = AudioItemMetadata(
+            title=track_details.title,
+            subtitle=track_details.artist,
+        )
     
     if mode == 'play':
         # Starting playback

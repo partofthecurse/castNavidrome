@@ -74,103 +74,34 @@ logger.addHandler(handler)
 logger.info('castNavidrome 0.10!')
 logger.debug('Getting configuration from the environment...')
 
-try:
-    if 'NAVI_SKILL_ID' in os.environ:
-        # Set skill ID, this is available on the Alexa Developer Console. defined in .env file
-        # if this is not set the web service will respond to any skill.
-        sb.skill_id = os.getenv('NAVI_SKILL_ID')
+# Set skill ID, this is available on the Alexa Developer Console. defined in .env file
+# if this is not set the web service will respond to any skill.
+sb.skill_id = os.getenv('NAVI_SKILL_ID')
+if sb.skill_id:
+    logger.info(f'Skill ID set to: {sb.skill_id}')
+else:
+    logger.warning('No Alexa skill ID configured; the web service will respond to any skill.')
 
-        logger.info(f'Skill ID set to: {sb.skill_id}')
+min_song_count = int(os.getenv('NAVI_SONG_COUNT', '50'))
+logger.info(f'Minimum song count is set to: {min_song_count}')
 
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Alexa skill ID was not found! {err}')
-    raise
+navidrome_url = os.getenv('NAVI_URL', '')
+logger.info(f'The URL for Navidrome is set to: {navidrome_url}')
 
-try:
-    if 'NAVI_SONG_COUNT' in os.environ:
-        min_song_count = os.getenv('NAVI_SONG_COUNT')
+navidrome_user = os.getenv('NAVI_USER', '')
+logger.info(f'The Navidrome user name is set to: {navidrome_user}')
 
-        logger.info(f'Minimum song count is set to: {min_song_count}')
+navidrome_passwd = os.getenv('NAVI_PASS', '')
+logger.info('The Navidrome password is set')
 
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The minimum song count was not found! {err}')
-    raise
+navidrome_port = int(os.getenv('NAVI_PORT', '443'))
+logger.info(f'The Navidrome port is set to: {navidrome_port}')
 
-try:
-    if 'NAVI_URL' in os.environ:
-        navidrome_url = os.getenv('NAVI_URL')
+navidrome_api_location = os.getenv('NAVI_API_PATH', '/rest')
+logger.info(f'The Navidrome API path is set to: {navidrome_api_location}')
 
-        logger.info(f'The URL for Navidrome is set to: {navidrome_url}')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The URL of the Navidrome server was not found! {err}')
-    raise
-
-try:
-    if 'NAVI_USER' in os.environ:
-        navidrome_user = os.getenv('NAVI_USER')
-
-        logger.info(f'The Navidrome user name is set to: {navidrome_user}')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Navidrome user name was not found! {err}')
-    raise
-
-try:
-    if 'NAVI_PASS' in os.environ:
-        navidrome_passwd = os.getenv('NAVI_PASS')
-
-        logger.info('The Navidrome password is set')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Navidrome password was not found! {err}')
-    raise
-
-try:
-    if 'NAVI_PORT' in os.environ:
-        navidrome_port = os.getenv('NAVI_PORT')
-
-        logger.info(f'The Navidrome port is set to: {navidrome_port}')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Navidrome port was not found! {err}')
-    raise
-
-try:
-    if 'NAVI_API_PATH' in os.environ:
-        navidrome_api_location = os.getenv('NAVI_API_PATH')
-
-        logger.info(f'The Navidrome API path is set to: {navidrome_api_location}')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Navidrome API path was not found! {err}')
-    raise
-
-try:
-    if 'NAVI_API_VER' in os.environ:
-        navidrome_api_version = os.getenv('NAVI_API_VER')
-
-        logger.info(f'The Navidrome API version is set to: {navidrome_api_version}')
-
-    else:
-        raise NameError
-except NameError as err:
-    logger.error(f'The Navidrome API version was not found! {err}')
-    raise
+navidrome_api_version = os.getenv('NAVI_API_VER', '1.16.1')
+logger.info(f'The Navidrome API version is set to: {navidrome_api_version}')
 
 logger.debug('Configuration has been successfully loaded')
 
