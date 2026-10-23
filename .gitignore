@@ -19,7 +19,19 @@ ts/
 # Sphinx / docs build output (sphinx/ is the source; _build/ is regenerated)
 sphinx/_build/
 sphinx/_templates/
-# docs/ is tracked (Wiki content); sphinx/_build/ is not
+# docs/ is tracked (Wiki content in Markdown); Sphinx HTML build output is not
+docs/*.html
+docs/*.js
+docs/*.inv
+docs/.buildinfo
+docs/.doctrees/
+docs/_sources/
+docs/_static/
+docs/_images/
+docs/images/
+docs/.gitkeep
+docs/.nojekyll
+docs/searchindex.js
 
 # Docker / build
 
