@@ -8,22 +8,11 @@ services:
     environment:
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
       - 'NAVI_URL=${NAVI_URL}'
+      - 'NAVI_BASE_URL=${NAVI_BASE_URL}'
       - 'NAVI_USER=${NAVI_USER}'
       - 'NAVI_PASS=${NAVI_PASS}'
-      - 'NAVI_BASE_URL=${NAVI_BASE_URL}'
-      - 'NAVI_SONG_COUNT=${NAVI_SONG_COUNT:-50}'
-      - 'NAVI_PORT=${NAVI_PORT:-443}'
-      - 'NAVI_API_PATH=${NAVI_API_PATH:-/rest}'
-      - 'NAVI_API_VER=${NAVI_API_VER:-1.16.1}'
-      - 'NAVI_DEBUG=${NAVI_DEBUG:-0}'
       - 'NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}'
-      - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
-      - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-de-DE}'
-      - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}'
       - 'NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies'
-      - 'NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}'
-      - 'NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}'
-      - 'NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}'
       - 'NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json'
     volumes:
       - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
@@ -36,10 +25,6 @@ services:
     depends_on:
       tailscale:
         condition: service_healthy
-    networks:
-      default:
-        aliases:
-          - castnavidrome-app
     restart: unless-stopped
 
   # Exposes every selected Alexa device as its own UPnP media renderer.
@@ -54,35 +39,7 @@ services:
     network_mode: host
     command: ['python3', '-m', 'castnavidrome.renderer_host']
     environment:
-      - 'NAVI_ALEXA_RENDERER_ENABLED=${NAVI_ALEXA_RENDERER_ENABLED:-yes}'
-      - 'NAVI_ALEXA_RENDERER_STATE_FILE=/var/lib/castnavidrome/renderer-devices.json'
-      - 'NAVI_ALEXA_RENDERER_ADVERTISE_HOST=${NAVI_ALEXA_RENDERER_ADVERTISE_HOST:-}'
-      - 'NAVI_ALEXA_RENDERER_PORT=${NAVI_ALEXA_RENDERER_PORT:-49443}'
-      - 'NAVI_ALEXA_RENDERER_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_REFRESH_SECONDS:-300}'
-      - 'NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS:-60}'
-      - 'NAVI_ALEXA_RENDERER_NAME_PREFIX=${NAVI_ALEXA_RENDERER_NAME_PREFIX:-}'
-      - 'NAVI_ALEXA_RENDERER_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_DEVICE_TYPES:-}'
-      - 'NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES:-}'
-      - 'NAVI_ALEXA_RENDERER_NAME_INCLUDE=${NAVI_ALEXA_RENDERER_NAME_INCLUDE:-}'
-      - 'NAVI_ALEXA_RENDERER_NAME_EXCLUDE=${NAVI_ALEXA_RENDERER_NAME_EXCLUDE:-}'
-      - 'NAVI_ALEXA_RENDERER_NAME_REGEX=${NAVI_ALEXA_RENDERER_NAME_REGEX:-}'
-      - 'NAVI_ALEXA_RENDERER_ONLY_ONLINE=${NAVI_ALEXA_RENDERER_ONLY_ONLINE:-no}'
-      - 'NAVI_ALEXA_RENDERER_ANNOUNCE=${NAVI_ALEXA_RENDERER_ANNOUNCE:-explicit}'
-      - 'NAVI_ALEXA_RENDERER_LOG_LEVEL=${NAVI_ALEXA_RENDERER_LOG_LEVEL:-INFO}'
       - 'NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies'
-      - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
-      - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}'
-      - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-de-DE}'
-      - 'NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}'
-      - 'NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}'
-      - 'NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}'
-      - 'NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json'
-      - 'NAVI_URL=${NAVI_URL}'
-      - 'NAVI_USER=${NAVI_USER}'
-      - 'NAVI_PASS=${NAVI_PASS}'
-      - 'NAVI_PORT=${NAVI_PORT:-443}'
-      - 'NAVI_API_PATH=/rest'
-      - 'NAVI_API_VER=1.16.1'
     volumes:
       - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
       - './state:/var/lib/castnavidrome'
@@ -101,8 +58,8 @@ services:
       - TS_LOCAL_ADDR_PORT=127.0.0.1:41234
       - TS_AUTH_ONCE=true
     volumes:
-      - ./config:/config
-      - ./ts/state:/var/lib/tailscale
+      - './config:/config'
+      - './ts/state:/var/lib/tailscale'
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:

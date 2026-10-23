@@ -79,28 +79,20 @@ services:
       - NAVI_BASE_URL=${NAVI_BASE_URL}
       - NAVI_USER=${NAVI_USER}
       - NAVI_PASS=${NAVI_PASS}
-      - NAVI_SONG_COUNT=50
-      - NAVI_PORT=443
-      - NAVI_API_PATH=/rest
-      - NAVI_API_VER=1.16.1
-      - NAVI_DEBUG=0
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
-      - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
-      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
-      - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
       - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
-      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
-      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
-      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
       - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
-      - NAVI_RADIO_URL=${NAVI_RADIO_URL:-}
-      - NAVI_RADIO_STATIONS_URL=${NAVI_RADIO_STATIONS_URL:-}
-      - NAVI_PLAYLIST_NAME_PATTERN=${NAVI_PLAYLIST_NAME_PATTERN:-}
-      - NAVI_PLAYLIST_SPOKEN_FORMAT=${NAVI_PLAYLIST_SPOKEN_FORMAT:-}
-      - NAVI_PLAYLIST_QUALIFIED_FORMAT=${NAVI_PLAYLIST_QUALIFIED_FORMAT:-}
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
       - ./state:/var/lib/castnavidrome
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    depends_on:
+      tailscale:
+        condition: service_healthy
     restart: unless-stopped
 
   # Optional: exposes every selected Alexa device as its own UPnP media renderer.
@@ -114,42 +106,43 @@ services:
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
     environment:
-      - NAVI_ALEXA_RENDERER_ENABLED=${NAVI_ALEXA_RENDERER_ENABLED:-yes}
-      - NAVI_ALEXA_RENDERER_STATE_FILE=/var/lib/castnavidrome/renderer-devices.json
-      - NAVI_ALEXA_RENDERER_ADVERTISE_HOST=${NAVI_ALEXA_RENDERER_ADVERTISE_HOST:-}
-      - NAVI_ALEXA_RENDERER_PORT=${NAVI_ALEXA_RENDERER_PORT:-49443}
-      - NAVI_ALEXA_RENDERER_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_REFRESH_SECONDS:-300}
-      - NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS:-60}
-      - NAVI_ALEXA_RENDERER_NAME_PREFIX=${NAVI_ALEXA_RENDERER_NAME_PREFIX:-}
-      - NAVI_ALEXA_RENDERER_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_DEVICE_TYPES:-}
-      - NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES:-}
-      - NAVI_ALEXA_RENDERER_NAME_INCLUDE=${NAVI_ALEXA_RENDERER_NAME_INCLUDE:-}
-      - NAVI_ALEXA_RENDERER_NAME_EXCLUDE=${NAVI_ALEXA_RENDERER_NAME_EXCLUDE:-}
-      - NAVI_ALEXA_RENDERER_NAME_REGEX=${NAVI_ALEXA_RENDERER_NAME_REGEX:-}
-      - NAVI_ALEXA_RENDERER_ONLY_ONLINE=${NAVI_ALEXA_RENDERER_ONLY_ONLINE:-no}
-      - NAVI_ALEXA_RENDERER_ANNOUNCE=${NAVI_ALEXA_RENDERER_ANNOUNCE:-explicit}
-      - NAVI_ALEXA_RENDERER_LOG_LEVEL=${NAVI_ALEXA_RENDERER_LOG_LEVEL:-INFO}
       - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
-      - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
-      - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
-      - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
-      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
-      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
-      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
-      - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
-      - NAVI_URL=${NAVI_URL}
-      - NAVI_USER=${NAVI_USER}
-      - NAVI_PASS=${NAVI_PASS}
-      - NAVI_PORT=${NAVI_PORT:-443}
-      - NAVI_API_PATH=/rest
-      - NAVI_API_VER=1.16.1
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale-${SERVICE}
+    hostname: ${SERVICE}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/serve.json
+      - TS_USERSPACE=false
+      - TS_ENABLE_HEALTH_CHECK=true
+      - TS_LOCAL_ADDR_PORT=127.0.0.1:41234
+      - TS_AUTH_ONCE=true
+    volumes:
+      - ./config:/config
+      - ./ts/state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - net_admin
+    ports:
+      - 0.0.0.0:${SERVICEPORT}:${SERVICEPORT}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 ```
 
-The cookie file (`.secrets/alexa.cookies`) and the state directory (`state/`) are local only and are excluded from version control via `.gitignore`.
+Only the required variables and fixed paths are in the compose file. Every other setting has a sensible default in the code and can be added to `.env` when you need to change it (see [Configuration](#configuration)). The cookie file (`.secrets/alexa.cookies`) and the state directory (`state/`) are local only and are excluded from version control via `.gitignore`.
 
 ### Option 2: Run directly with Python
 
