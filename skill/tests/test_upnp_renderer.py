@@ -72,6 +72,10 @@ class FakeController:
     def set_volume(self, renderer, volume=0):
         self.calls.append(('set_volume', volume))
 
+    def get_volume(self, renderer):
+        self.calls.append(('get_volume',))
+        return 7
+
     def resolve_queue(self, renderer):
         return self.queue
 
@@ -212,6 +216,15 @@ class MediaRendererTests(unittest.TestCase):
         self.assertEqual(self.renderer.alexa_volume(50), 5)
         self.assertEqual(self.renderer.alexa_volume(100), 10)
         self.assertEqual(self.renderer.alexa_volume(0), 0)
+
+    def test_get_volume_reads_the_real_volume_from_the_controller(self):
+        self.renderer.set_volume('50')
+
+        result = self.renderer.get_volume()
+
+        self.assertEqual(result, {'CurrentVolume': '70'})
+        self.assertEqual(self.renderer.volume, 70)
+        self.assertIn(('get_volume',), self.controller.calls)
 
     def test_the_transport_info_reports_the_current_state(self):
         info = self.renderer.get_transport_info()
@@ -380,3 +393,44 @@ class DidlBuilderTests(unittest.TestCase):
         self.assertEqual(track['album'], 'Some Album')
         self.assertEqual(track['duration'], 201)
         self.assertEqual(track['uri'], 'http://navidrome/rest/stream?id=42')
+
+    def test_special_characters_in_the_title_round_trip(self):
+        track = {
+            'id': '42',
+            'title': 'Mötley Crüe - Dr. Feelgood & Co.',
+            'artist': 'Mötley Crüe',
+            'album': 'Dr. Feelgood',
+            'art': 'http://navidrome/rest/getCoverArt?id=1',
+            'duration': 201,
+            'uri': 'http://navidrome/rest/stream?id=42',
+        }
+
+        metadata = build_didl_metadata(track)
+
+        parsed = parse_didl_metadata(metadata)
+
+        self.assertEqual(parsed['title'], track['title'])
+        self.assertEqual(parsed['artist'], track['artist'])
+        self.assertEqual(parsed['album'], track['album'])
+        self.assertEqual(parsed['uri'], track['uri'])
+        self.assertEqual(parsed['duration'], track['duration'])
+
+    def test_a_long_title_round_trip(self):
+        long_title = 'A' * 200
+        track = dict(QUEUE[0], title=long_title)
+
+        metadata = build_didl_metadata(track)
+
+        parsed = parse_didl_metadata(metadata)
+
+        self.assertEqual(parsed['title'], long_title)
+
+    def test_numbers_and_symbols_in_the_title_round_trip(self):
+        track = dict(QUEUE[0], title='99 Luftballons (Nena) - 1983 / #1', artist='Nena')
+
+        metadata = build_didl_metadata(track)
+
+        parsed = parse_didl_metadata(metadata)
+
+        self.assertEqual(parsed['title'], track['title'])
+        self.assertEqual(parsed['artist'], track['artist'])

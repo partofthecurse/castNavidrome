@@ -3,9 +3,11 @@
 import email.utils
 import fcntl
 import logging
+import random
 import socket
 import struct
 import threading
+import time
 
 from .constants import (
     AVTRANSPORT_SERVICE_TYPE,
@@ -17,12 +19,19 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 SSDP_MULTICAST_ADDRESS = '239.255.255.250'
+SSDP_MULTICAST_IPV6_ADDRESS = 'ff02::c'
+SSDP_SITE_LOCAL_IPV6_ADDRESS = 'ff05::c'
 SSDP_MULTICAST_PORT = 1900
 SSDP_PORT = 1900
 SSDP_ALL = 'ssdp:all'
 SSDP_ROOT_DEVICE = 'upnp:rootdevice'
 SSDP_MAX_AGE = 1800
 SERVER_HEADER = 'Linux/5.0 UPnP/1.1 castNavidrome/1.0'
+
+# How many times a notification is repeated, so that a single lost UDP
+# multicast packet does not hide a renderer from the clients.
+SSDP_NOTIFY_COUNT = 3
+SSDP_NOTIFY_DELAY = 0.4
 
 
 class SsdpServer:
@@ -97,39 +106,50 @@ class SsdpServer:
             self._socket = None
 
     def _create_socket(self) -> socket.socket:
-        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        udp_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+        # Try to bind to IPv6 first, then fallback to IPv4 if needed
         try:
-            udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            udp_socket.bind(('', self.port, 0, socket.IPPROTO_IPV6))
+            udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 4)
+            udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_LOOP, 1)
         except OSError:
-            pass
+            # Fallback to IPv4
+            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            udp_socket.bind(('', self.port))
+            udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+            udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
 
-        if hasattr(socket, 'SO_REUSEPORT'):
-            try:
-                udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            except OSError:
-                pass
-
-        udp_socket.bind(('', self.port))
-        udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
-        udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
-
-        group = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
+        # Join both IPv4 and IPv6 multicast groups
+        group_v4 = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
+        group_v6 = socket.inet_pton(socket.AF_INET6, 'ff02::c')
 
         joined = False
         for address in self._local_addresses():
             try:
+                # Try IPv4 first
                 udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                                      group + socket.inet_aton(address))
+                                      group_v4 + socket.inet_aton(address))
                 joined = True
-            except OSError as error:
-                logger.debug('Could not join the SSDP multicast group on %s: %s', address, error)
+                break
+            except OSError:
+                try:
+                    # Then try IPv6
+                    udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
+                                          socket.inet_pton(socket.AF_INET6, '::' + address))
+                    joined = True
+                    break
+                except OSError as error:
+                    logger.debug('Could not join the SSDP multicast group on %s: %s', address, error)
 
         if not joined:
+            # Try both IPv4 and IPv6 fallback
             try:
-                udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, group + b'\x00\x00\x00\x00')
+                udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, group_v4 + b'\x00\x00\x00\x00')
             except OSError as error:
-                logger.warning('Could not join the SSDP multicast group: %s', error)
+                logger.warning('Could not join the SSDP multicast group (IPv4): %s', error)
 
         udp_socket.settimeout(1)
 
@@ -137,29 +157,59 @@ class SsdpServer:
 
     @staticmethod
     def _local_addresses() -> list:
-        """Return the IPv4 addresses of all local network interfaces."""
+        """Return the IPv4 and IPv6 addresses of all local network interfaces."""
 
         addresses = []
 
         try:
             for _, name in socket.if_nameindex():
-                probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 try:
-                    packed = fcntl.ioctl(probe.fileno(), 0x8915, struct.pack('256s', name[:15].encode()))
-                    address = socket.inet_ntoa(packed[20:24])
-                finally:
-                    probe.close()
+                    # Try IPv4
+                    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    try:
+                        packed = fcntl.ioctl(probe.fileno(), 0x8915, struct.pack('256s', name[:15].encode()))
+                        address = socket.inet_ntoa(packed[20:24])
+                        if not address.startswith('127.') and address not in addresses:
+                            addresses.append(address)
+                    finally:
+                        probe.close()
 
-                if not address.startswith('127.') and address not in addresses:
-                    addresses.append(address)
+                    # Try IPv6
+                    try:
+                        probe6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+                        try:
+                            # Get IPv6 address for the interface
+                            packed6 = fcntl.ioctl(probe6.fileno(), 0x891b, struct.pack('256s', name[:15].encode()))
+                            # Parse IPv6 address
+                            import ipaddress
+                            addr_str = packed6[:46].split(b'\x00', 1)[0].decode('utf-8', 'ignore')
+                            if addr_str and not addr_str.startswith('::1') and ':' in addr_str:
+                                if addr_str not in addresses:
+                                    addresses.append(addr_str)
+                        finally:
+                            probe6.close()
+                    except (OSError, AttributeError):
+                        pass
+                except (OSError, AttributeError):
+                    pass
         except (OSError, AttributeError):
             pass
 
         try:
+            # Also use getaddrinfo for additional addresses
             for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
                 address = info[4][0]
                 if not address.startswith('127.') and address not in addresses:
                     addresses.append(address)
+        except OSError:
+            pass
+
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET6):
+                address = info[4][0]
+                if address and not address.startswith('::1') and ':' in address:
+                    if address not in addresses:
+                        addresses.append(address)
         except OSError:
             pass
 
@@ -197,8 +247,19 @@ class SsdpServer:
                      search_target, address[0], address[1], len(matches))
         logger.debug('The SSDP search was: %s', message.replace('\r\n', ' | '))
 
+        try:
+            mx = float(headers.get('mx', '1'))
+        except (TypeError, ValueError):
+            mx = 1.0
+        if mx < 0:
+            mx = 0.0
+        if mx > 5:
+            mx = 5.0
+
         for renderer in matches:
             for target in self._response_targets(search_target):
+                if mx:
+                    time.sleep(random.uniform(0, mx))
                 response = self._build_search_response(target, renderer)
                 logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\r\n', ' | '))
                 self._sendto(response, address)
@@ -273,8 +334,6 @@ class SsdpServer:
             f'SERVER: {SERVER_HEADER}',
             f'ST: {search_target}',
             f'USN: {usn}',
-            'BOOTID.UPNP.ORG: 1',
-            'CONFIGID.UPNP.ORG: 1',
             '',
             '',
         ]
@@ -286,7 +345,16 @@ class SsdpServer:
             return
 
         try:
-            self._socket.sendto(payload, address)
+            if self._socket.family == socket.AF_INET6:
+                # IPv6 socket
+                dest_addr = address
+                if address[0] and '.' in address[0] and ':' not in address[0]:
+                    # IPv4 address
+                    dest_addr = (f'::ffff:{address[0]}', address[1])
+                self._socket.sendto(payload, dest_addr)
+            else:
+                # IPv4 socket
+                self._socket.sendto(payload, address)
         except OSError as error:
             logger.debug('Could not send the SSDP response to %s: %s', address, error)
 
@@ -294,28 +362,54 @@ class SsdpServer:
     # Announcements
     #
 
-    def announce(self) -> None:
-        """Send the ssdp:alive notifications for all known renderers."""
+    def announce(self, count: int = SSDP_NOTIFY_COUNT, delay: float = SSDP_NOTIFY_DELAY) -> None:
+        """Send the ssdp:alive notifications for all known renderers.
 
-        for renderer in self.renderers():
-            for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
-                payload = self._build_notify(renderer, 'ssdp:alive', target)
-                self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
+        Every notification is repeated ``count`` times with ``delay`` seconds
+        between the repetitions, so that a single lost UDP multicast packet
+        does not hide a renderer from the clients.
 
-    def announce_byebye(self) -> None:
-        """Send the ssdp:byebye notifications for all known renderers."""
+        :param int count: The number of times every notification is repeated
+        :param float delay: The seconds to wait between two repetitions
+        """
 
-        for renderer in self.renderers():
-            for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
-                payload = self._build_notify(renderer, 'ssdp:byebye', target)
-                self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
+        for _ in range(max(1, count)):
+            for renderer in self.renderers():
+                for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+                    payload = self._build_notify(renderer, 'ssdp:alive', target)
+                    # Send to both IPv4 and IPv6 multicast addresses
+                    self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
+                    self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+                    self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+            time.sleep(delay)
+
+    def announce_byebye(self, count: int = SSDP_NOTIFY_COUNT, delay: float = SSDP_NOTIFY_DELAY) -> None:
+        """Send the ssdp:byebye notifications for all known renderers.
+
+        Every notification is repeated ``count`` times with ``delay`` seconds
+        between the repetitions, so that the clients reliably remove the
+        renderers from their cache.
+
+        :param int count: The number of times every notification is repeated
+        :param float delay: The seconds to wait between two repetitions
+        """
+
+        for _ in range(max(1, count)):
+            for renderer in self.renderers():
+                for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+                    payload = self._build_notify(renderer, 'ssdp:byebye', target)
+                    # Send to both IPv4 and IPv6 multicast addresses
+                    self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
+                    self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+                    self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+            time.sleep(delay)
 
     def _build_notify(self, renderer, notification_subtype: str, notify_type: str) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'
 
         lines = [
             'NOTIFY * HTTP/1.1',
-            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}',
+            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}; ipv6:[{SSDP_MULTICAST_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}; ipv6site:[{SSDP_SITE_LOCAL_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}',
             f'CACHE-CONTROL: max-age={SSDP_MAX_AGE}',
             f'LOCATION: {location}',
             f'NT: {notify_type}',

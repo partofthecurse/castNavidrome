@@ -29,6 +29,11 @@ UNKNOWN_CLIENT = 'DLNA client'
 TRACK_KEYS = ('id', 'title', 'artist', 'album', 'albumId', 'art', 'duration', 'uri')
 
 
+# The volume of an Alexa device is read at most once per interval, so that
+# polling the Alexa device does not happen on every GetVolume call.
+VOLUME_READ_INTERVAL = 60.0
+
+
 def format_duration(seconds: int) -> str:
     """Format a number of seconds as the UPnP duration "H:MM:SS".
 
@@ -129,6 +134,7 @@ class MediaRenderer:
         self.muted = False
         self.started_at = None
         self._advance_timer = None
+        self._volume_read_at = 0.0
 
     #
     # State helpers
@@ -618,6 +624,19 @@ class MediaRenderer:
     #
 
     def get_volume(self, channel: str = 'Master') -> dict:
+        now = time.monotonic()
+
+        if now - self._volume_read_at >= VOLUME_READ_INTERVAL:
+            volume = self._query('get_volume')
+
+            if volume is not None:
+                upnp_volume = round(volume * UPNP_VOLUME_MAX / ALEXA_VOLUME_MAX)
+                if upnp_volume != self.volume:
+                    self.volume = upnp_volume
+                    self.notify_state_change()
+
+            self._volume_read_at = now
+
         return {'CurrentVolume': str(self.volume)}
 
     def set_volume(self, desired_volume: str, channel: str = 'Master') -> dict:

@@ -29,18 +29,32 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         self.opener.open.return_value = response
         return response
 
+    def mock_responses(self, bodies):
+        """Mock sequential responses for consecutive opener.open() calls."""
+        responses = []
+        for body in bodies:
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.read.return_value = body
+            responses.append(response)
+        self.opener.open.side_effect = responses
+        return responses
+
     def test_list_devices_returns_only_fields_needed_for_targeting(self):
-        self.mock_response(json.dumps({
-            'devices': [{
-                'accountName': 'Kitchen Echo',
-                'deviceOwnerCustomerId': 'customer-1',
-                'deviceType': 'device-type-1',
-                'deviceFamily': 'ECHO',
-                'serialNumber': 'serial-1',
-                'online': True,
-                'otherPrivateField': 'discarded',
-            }],
-        }).encode('utf-8'))
+        self.mock_responses([
+            json.dumps({'alexaApiUrl': 'https://api.amazon.com'}).encode('utf-8'),
+            json.dumps({
+                'devices': [{
+                    'accountName': 'Kitchen Echo',
+                    'deviceOwnerCustomerId': 'customer-1',
+                    'deviceType': 'device-type-1',
+                    'deviceFamily': 'ECHO',
+                    'serialNumber': 'serial-1',
+                    'online': True,
+                    'otherPrivateField': 'discarded',
+                }],
+            }).encode('utf-8'),
+        ])
 
         devices = self.client.list_devices()
 
@@ -100,6 +114,19 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         self.assertEqual(build_play_track_text('zero mukke', 'Himmel', 'Falke', locale='de-DE', quiet=True),
                          'frage zero mukke, spiele das Lied Himmel von Falke leise')
 
+    def test_the_play_track_text_preserves_special_characters(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Mötley Crüe - Dr. Feelgood & Co.', 'Mötley Crüe', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Mötley Crüe - Dr. Feelgood & Co. von Mötley Crüe',
+        )
+
+    def test_the_play_track_text_preserves_a_long_title(self):
+        long_title = 'A' * 150
+        self.assertEqual(
+            build_play_track_text('zero mukke', long_title, 'Falke', locale='de-DE'),
+            'frage zero mukke, spiele das Lied ' + long_title + ' von Falke',
+        )
+
     def test_send_play_command_targets_device_and_uses_skill_phrase(self):
         self.mock_response()
         device = {
@@ -111,7 +138,7 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         self.client.send_play_command(device, 'castnavidrome')
 
         request = self.opener.open.call_args.args[0]
-        self.assertEqual(request.full_url, 'https://api.amazon.com/api/behaviors/preview')
+        self.assertEqual(request.full_url, 'https://alexa.amazon.com/api/behaviors/preview')
         command = json.loads(request.data)
         sequence = json.loads(command['sequenceJson'])
         self.assertEqual(command['behaviorId'], 'PREVIEW')
@@ -198,6 +225,110 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         command = json.loads(request.data)
         sequence = json.loads(command['sequenceJson'])
         self.assertEqual(sequence['startNode']['operationPayload']['locale'], 'de-DE')
+
+    def test_get_device_volume_reads_the_volume_from_the_alexa_device(self):
+        self.mock_responses([
+            json.dumps({'alexaApiUrl': 'https://alexa.amazon.com'}).encode('utf-8'),
+            b'',
+            json.dumps({'volume': 6}).encode('utf-8'),
+        ])
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        volume = self.client.get_device_volume(device)
+
+        self.assertEqual(volume, 6)
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            'https://alexa.amazon.com/api/device-volume?deviceSerialNumber=serial-1&deviceType=device-type-1',
+        )
+
+    def test_get_device_volume_reads_from_all_device_volumes(self):
+        self.mock_responses([
+            json.dumps({'alexaApiUrl': 'https://alexa.amazon.com'}).encode('utf-8'),
+            json.dumps([
+                {'deviceSerialNumber': 'serial-1', 'deviceType': 'device-type-1', 'volume': 4},
+                {'deviceSerialNumber': 'serial-2', 'deviceType': 'device-type-2', 'volume': 7},
+            ]).encode('utf-8'),
+        ])
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        volume = self.client.get_device_volume(device)
+
+        self.assertEqual(volume, 4)
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            'https://alexa.amazon.com/api/devices/deviceType/dsn/audio/v1/allDeviceVolumes',
+        )
+
+    def test_get_device_volume_clamps_the_volume_to_the_alexa_range(self):
+        self.mock_responses([
+            json.dumps({'alexaApiUrl': 'https://alexa.amazon.com'}).encode('utf-8'),
+            b'',
+            json.dumps({'volume': 12}).encode('utf-8'),
+            b'',
+            json.dumps({'volume': -3}).encode('utf-8'),
+        ])
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        self.assertEqual(self.client.get_device_volume(device), 10)
+        self.assertEqual(self.client.get_device_volume(device), 0)
+
+    def test_get_device_volume_returns_none_on_no_session(self):
+        tmp = tempfile.NamedTemporaryFile(suffix='.cookies', delete=False)
+        tmp.write(b'csrf=test-csrf\nsession-id=test-session\n')
+        tmp.close()
+        client = AlexaTextCommandClient(tmp.name, domain='amazon.com')
+        device = {'serialNumber': 'serial-1'}
+        self.assertIsNone(client.get_device_volume(device))
+        Path(tmp.name).unlink(missing_ok=True)
+
+    def test_get_device_volume_returns_none_on_html_response(self):
+        self.mock_responses([
+            json.dumps({'alexaApiUrl': 'https://alexa.amazon.com'}).encode('utf-8'),
+            b'',
+            b'<!DOCTYPE html><html><body>Please log in</body></html>',
+        ])
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        volume = self.client.get_device_volume(device)
+
+        self.assertIsNone(volume)
+
+    def test_get_device_volume_falls_back_to_single_endpoint(self):
+        # First call: /api/endpoints, then allDeviceVolumes returns HTML -> fall back to device-volume
+        self.opener.open.side_effect = [
+            MagicMock(__enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value=json.dumps({'alexaApiUrl': 'https://alexa.amazon.com'}).encode('utf-8'))))),
+            MagicMock(__enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value=b'<html>')))),
+            MagicMock(__enter__=MagicMock(return_value=MagicMock(read=MagicMock(return_value=json.dumps({'volume': 5}).encode('utf-8'))))),
+        ]
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        volume = self.client.get_device_volume(device)
+
+        self.assertEqual(volume, 5)
+        self.assertEqual(self.opener.open.call_count, 3)
 
     def test_cookie_file_requires_csrf_cookie(self):
         cookie_file = Path(self.temp_dir.name) / 'missing-csrf.data'

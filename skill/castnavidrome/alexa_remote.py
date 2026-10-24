@@ -7,6 +7,7 @@ ALEXA_API_HOST_MAP = {
 }
 
 import json
+import logging
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,8 @@ from urllib.request import Request, build_opener
 
 from .amazon_login import AmazonSession, AmazonLoginError
 from .localization import alexa_command, normalize_locale
+
+logger = logging.getLogger(__name__)
 
 
 class AlexaRemoteError(RuntimeError):
@@ -86,6 +89,9 @@ class AlexaTextCommandClient:
             self.csrf = next((value for name, value in self.cookies.items() if name.lower() == 'csrf'), None)
             if not self.csrf:
                 raise AlexaRemoteError('The Alexa cookie file has no csrf cookie.')
+        # Dynamically resolved Alexa API host (from /api/endpoints).  Falls back
+        # to ``alexa.{domain}`` when unset.
+        self.api_host: str | None = None
 
     @staticmethod
     def _load_cookies(cookie_file: str) -> dict:
@@ -117,9 +123,12 @@ class AlexaTextCommandClient:
         domain = self.domain
         # Normalize domain: 'amazon.de' -> 'de', 'amazon.com' -> 'com'
         domain_key = domain.split('amazon.')[-1] if 'amazon.' in domain else domain
-        # Use the original Alexa web API endpoint (accepts session cookies)
-        # OAuth Bearer tokens may not work with this endpoint; use cookies instead
-        alexa_host = f'alexa.{self.domain}'
+        # Use the dynamically resolved Alexa API host (from /api/endpoints) when
+        # available, otherwise fall back to ``alexa.{domain}``.
+        if self.api_host:
+            alexa_host = self.api_host
+        else:
+            alexa_host = f'alexa.{self.domain}'
         url = f'https://{alexa_host}{path}'
         data = json.dumps(payload).encode('utf-8') if payload is not None else None
         headers = {
@@ -156,28 +165,118 @@ class AlexaTextCommandClient:
         except URLError:
             raise AlexaRemoteError('Could not connect to the Alexa service.') from None
 
-    def list_devices(self) -> list:
-        response = self._request('/api/devices-v2/device?cached=false')
+    def get_endpoints(self) -> dict | None:
+        """Query /api/endpoints and cache the Alexa API host.
+
+        Alexa-remote2 does the same: it asks Amazon for the correct API host
+        instead of hardcoding ``alexa.amazon.com``.  This avoids HTML responses
+        when the default host does not serve the requested endpoint.
+
+        :return: The parsed JSON response, or None on failure.
+        :rtype: dict | None
+        """
+
         try:
-            devices = json.loads(response).get('devices', [])
-        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
-            raise AlexaRemoteError('Alexa returned an invalid device response.') from None
+            response = self._request('/api/endpoints')
+        except AlexaRemoteError as error:
+            logger.warning('Could not query Alexa endpoints: %s', error)
+            return None
 
-        if not isinstance(devices, list):
-            raise AlexaRemoteError('Alexa returned an invalid device list.')
+        try:
+            data = json.loads(response)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning('Alexa endpoints returned HTML instead of JSON: %r', response[:300])
+            return None
 
-        return [
-            {
-                'name': device.get('accountName') or device.get('deviceTypeFriendlyName') or '',
-                'deviceOwnerCustomerId': device.get('deviceOwnerCustomerId', ''),
-                'deviceType': device.get('deviceType', ''),
-                'deviceFamily': device.get('deviceFamily') or '',
-                'serialNumber': device.get('serialNumber', ''),
-                'online': device.get('online', False),
-            }
-            for device in devices
-            if isinstance(device, dict)
-        ]
+        if not isinstance(data, dict):
+            return None
+
+        # Prefer websiteApiUrl/alexaApiUrl, fall back to websiteApiUrl.
+        api_url = data.get('alexaApiUrl') or data.get('websiteApiUrl')
+        if isinstance(api_url, str) and api_url:
+            host = api_url
+            for prefix in ('https://', 'http://'):
+                if host.startswith(prefix):
+                    host = host[len(prefix):]
+                    break
+            # Strip any trailing path.
+            host = host.split('/', 1)[0]
+            self.api_host = host
+            logger.info('Using Alexa API host %s.', host)
+
+        return data
+
+    def list_devices(self) -> list:
+        # Resolve the correct Alexa API host first (alexa-remote2 pattern).
+        if self.api_host is None:
+            self.get_endpoints()
+
+        # Try the newer endpoint first, fall back to older ones if needed
+        last_error = None
+        hosts_to_try = []
+        if self.api_host:
+            hosts_to_try.append(self.api_host)
+        # Fallback hosts for different regions
+        if self.domain in ('amazon.de', 'de'):
+            hosts_to_try.extend(['eu-api-alexa.amazon.de', 'api.eu.amazonalexa.com', 'alexa.amazon.de'])
+        elif self.domain in ('amazon.com', 'com'):
+            hosts_to_try.extend(['api.amazonalexa.com', 'pitangui.amazon.com', 'alexa.amazon.com'])
+        else:
+            hosts_to_try.extend(['alexa.amazon.com'])
+        # Deduplicate while preserving order
+        seen_hosts = set()
+        hosts_to_try = [h for h in hosts_to_try if not (h in seen_hosts or seen_hosts.add(h))]
+
+        paths = ['/api/devices-v2/device?cached=false', '/api/devices?cached=false', '/api/devices-v2']
+
+        for host in hosts_to_try:
+            self.api_host = host
+            for path in paths:
+                try:
+                    response = self._request(path)
+                except AlexaRemoteError as error:
+                    last_error = error
+                    continue
+
+                try:
+                    data = json.loads(response)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    last_error = AlexaRemoteError('Alexa returned an invalid device response.')
+                    continue
+
+                devices = []
+                if isinstance(data, dict):
+                    devices = data.get('devices') or data.get('deviceList') or data.get('items') or []
+                elif isinstance(data, list):
+                    devices = data
+                else:
+                    last_error = AlexaRemoteError('Alexa returned an invalid device list.')
+                    continue
+
+                if not isinstance(devices, list):
+                    last_error = AlexaRemoteError('Alexa returned an invalid device list.')
+                    continue
+
+                return [
+                    {
+                        'name': (device.get('accountName') or device.get('deviceTypeFriendlyName') or
+                                 device.get('friendlyName') or device.get('name') or
+                                 device.get('displayName') or ''),
+                        'deviceOwnerCustomerId': (device.get('deviceOwnerCustomerId') or
+                                                  device.get('ownerCustomerId') or
+                                                  device.get('customerId') or ''),
+                        'deviceType': device.get('deviceType') or device.get('deviceTypeId') or '',
+                        'deviceFamily': device.get('deviceFamily') or device.get('familyName') or '',
+                        'serialNumber': device.get('serialNumber') or device.get('dsn') or device.get('deviceSerialNumber') or '',
+                        'online': device.get('online') if device.get('online') is not None else device.get('isOnline', False),
+                    }
+                    for device in devices
+                    if isinstance(device, dict)
+                ]
+
+        if last_error:
+            raise last_error
+        raise AlexaRemoteError('Alexa returned an invalid device response.') from None
 
     def send_text_command(self, device: dict, text: str, locale: str = 'en-US') -> None:
         """Send a voice command to an Alexa device
@@ -233,6 +332,101 @@ class AlexaTextCommandClient:
             text_command = alexa_command('play_random', locale, skill_name=skill_name)
 
         self.send_text_command(device, text_command, locale)
+
+    def get_device_volume(self, device: dict) -> int | None:
+        """Read the current volume of an Alexa device
+
+        The volume is read from the Alexa device on the Alexa scale of 0 to 10.
+
+        First tries the ``allDeviceVolumes`` endpoint which returns the volume
+        of all devices as JSON.  Falls back to the single-device
+        ``/api/device-volume`` endpoint when that is unavailable.
+
+        :param device: The Alexa device
+        :return: The volume, from 0 to 10, or None when it cannot be read
+        :rtype: int | None
+        """
+
+        serial = device.get('serialNumber', '')
+        device_type = device.get('deviceType', '')
+
+        # Resolve the correct Alexa API host first (alexa-remote2 pattern).
+        if self.api_host is None:
+            self.get_endpoints()
+
+        volume = self._volume_from_all_devices(serial, device_type)
+        if volume is not None:
+            return volume
+
+        path = f'/api/device-volume?deviceSerialNumber={serial}&deviceType={device_type}'
+        response = self._request(path)
+
+        try:
+            data = json.loads(response)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning('Alexa device-volume returned HTML instead of JSON: %r', response[:300])
+            return None
+
+        volume = None
+
+        if isinstance(data, dict):
+            volume = data.get('volume')
+            if isinstance(volume, dict):
+                volume = volume.get('value')
+
+        if volume is None:
+            logger.warning('Alexa returned an invalid volume response: %r', response[:300])
+            return None
+
+        try:
+            volume = int(volume)
+        except (TypeError, ValueError):
+            logger.warning('Alexa returned an invalid volume value: %r', response[:300])
+            return None
+
+        return max(0, min(10, volume))
+
+    def _volume_from_all_devices(self, serial: str, device_type: str) -> int | None:
+        """Read all device volumes and return the one matching serial/deviceType.
+
+        :return: The volume, from 0 to 10, or None when not found.
+        :rtype: int | None
+        """
+
+        path = '/api/devices/deviceType/dsn/audio/v1/allDeviceVolumes'
+        try:
+            response = self._request(path)
+        except AlexaRemoteError as error:
+            logger.warning('Could not read all device volumes: %s', error)
+            return None
+
+        try:
+            data = json.loads(response)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning('Alexa allDeviceVolumes returned HTML instead of JSON: %r', response[:300])
+            return None
+
+        entries = data if isinstance(data, list) else (data.get('devices') if isinstance(data, dict) else None)
+        if not isinstance(entries, list):
+            return None
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_serial = entry.get('deviceSerialNumber') or entry.get('serialNumber') or ''
+            entry_type = entry.get('deviceType') or entry.get('type') or ''
+            if entry_serial != serial or (device_type and entry_type != device_type):
+                continue
+            volume = entry.get('volume')
+            if isinstance(volume, dict):
+                volume = volume.get('value')
+            if volume is None:
+                continue
+            try:
+                return max(0, min(10, int(volume)))
+            except (TypeError, ValueError):
+                continue
+        return None
 
 
 def build_play_track_text(skill_name: str, title: str, artist: str, locale: str = 'en-US',

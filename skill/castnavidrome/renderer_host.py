@@ -357,6 +357,22 @@ class AlexaRendererController:
         level = max(0, min(10, round(int(volume) / 10)))
         self._send(renderer, build_control_text('set_volume', self.skill_name, volume=level, locale=self.locale))
 
+    def get_volume(self, renderer: MediaRenderer) -> int:
+        """Read the current volume of the Alexa device
+
+        :param renderer: The media renderer
+        :return: The volume on the Alexa scale of 0 to 10, or None when it cannot be read
+        :rtype: int | None
+        """
+
+        device = self._device(renderer)
+
+        try:
+            return self._client().get_device_volume(device)
+        except AlexaRemoteError as error:
+            logger.warning('Could not read the volume of %s: %s', device.get('name'), error)
+            return None
+
     def _lookup_track(self, renderer: MediaRenderer) -> tuple:
         """Look the track of the current URI up in the Navidrome collection."""
 
@@ -490,11 +506,11 @@ class RendererHost:
 
         self.refresh()
 
-        # Send multiple announcements at startup so that clients that start
-        # listening at slightly different times still receive them.
-        for _ in range(2):
-            time.sleep(1)
-            self.ssdp.announce()
+        # Announce the renderers several times so that clients that start
+        # listening at slightly different times still receive them.  The
+        # SSDP server repeats every notification internally, so a single
+        # call is enough to survive a lost UDP multicast packet.
+        self.ssdp.announce()
 
         thread = threading.Thread(target=self._refresh_loop, name='renderer-refresh', daemon=True)
         thread.start()

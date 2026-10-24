@@ -7,7 +7,7 @@ from castnavidrome.upnp.constants import (
     MEDIA_RENDERER_DEVICE_TYPE,
     RENDERINGCONTROL_SERVICE_TYPE,
 )
-from castnavidrome.upnp.ssdp import SsdpServer
+from castnavidrome.upnp.ssdp import SsdpServer, SSDP_ROOT_DEVICE
 
 
 class FakeRenderer:
@@ -53,12 +53,13 @@ class SsdpSearchTests(unittest.TestCase):
         targets, usns, _ = self._search('ssdp:all')
 
         self.assertEqual(targets, [
+            SSDP_ROOT_DEVICE,
             MEDIA_RENDERER_DEVICE_TYPE,
             AVTRANSPORT_SERVICE_TYPE,
             RENDERINGCONTROL_SERVICE_TYPE,
             CONNECTIONMANAGER_SERVICE_TYPE,
         ])
-        self.assertEqual(usns[1], 'uuid:1234::' + AVTRANSPORT_SERVICE_TYPE)
+        self.assertEqual(usns[2], 'uuid:1234::' + AVTRANSPORT_SERVICE_TYPE)
 
     def test_the_search_for_the_av_transport_service_is_answered(self):
         targets, usns, _ = self._search(AVTRANSPORT_SERVICE_TYPE)
@@ -88,6 +89,39 @@ class SsdpSearchTests(unittest.TestCase):
         for response in responses:
             self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', response)
             self.assertIn('HTTP/1.1 200 OK', response)
+
+
+class SsdpAnnounceTests(unittest.TestCase):
+    """The announce behaviour of the SSDP server.
+
+    Notifications are sent over unreliable UDP multicast, so every
+    notification is repeated several times to survive a lost packet.
+    """
+
+    def setUp(self):
+        self.server = SsdpServer(advertise_host='192.168.178.128', http_port=49443)
+        self.renderer = FakeRenderer()
+        self.server.set_renderers([self.renderer])
+        self.server._socket = MagicMock()
+
+    def _notify_payloads(self, count=1, delay=0):
+        self.server.announce(count=count, delay=delay)
+        return [call.args[0].decode('utf-8') for call in self.server._socket.sendto.call_args_list]
+
+    def test_announce_repeats_every_notification(self):
+        payloads = self._notify_payloads(count=3, delay=0)
+
+        alive = [p for p in payloads if 'NTS: ssdp:alive' in p]
+        targets = [SSDP_ROOT_DEVICE, AVTRANSPORT_SERVICE_TYPE, RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
+        self.assertEqual(len(alive), 3 * (1 + len(targets)))
+
+    def test_every_notification_carries_the_location(self):
+        payloads = self._notify_payloads(count=1, delay=0)
+
+        for payload in payloads:
+            self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', payload)
+            self.assertIn('NOTIFY * HTTP/1.1', payload)
+            self.assertIn('HOST: 239.255.255.250:1900', payload)
 
 
 if __name__ == '__main__':
