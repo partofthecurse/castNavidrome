@@ -71,7 +71,9 @@ class AmazonSession:
     """
 
     def __init__(self, domain=None, session_file=None, timeout=30, opener=None) -> None:
-        self.domain = domain or os.getenv(ENV_DOMAIN, 'amazon.com')
+        raw_domain = domain or os.getenv(ENV_DOMAIN, 'amazon.com')
+        # Accept both 'com'/'de' and 'amazon.com'/'amazon.de' forms.
+        self.domain = raw_domain.split('amazon.')[-1] if 'amazon.' in raw_domain else raw_domain
         self.session_file = Path(session_file or os.getenv(ENV_SESSION_FILE,
                                                           str(DEFAULT_SESSION_FILE)))
         self.timeout = timeout
@@ -251,6 +253,7 @@ class AmazonSession:
                     'Amazon shows a CAPTCHA page that cannot be solved automatically. '
                     'Disable NAVI_AMAZON_USER and use NAVI_ALEXA_COOKIE_FILE instead.'
                 ) from None
+            logger.error('Amazon returned HTTP %s for %s.', error.code, url)
             raise AmazonLoginError(f'Amazon returned HTTP {error.code}.') from None
         except URLError as error:
             raise AmazonLoginError(f'Could not reach Amazon: {error}') from None
@@ -274,6 +277,7 @@ class AmazonSession:
                 logger.warning('Amazon session expired (HTTP %s), re-logging in.', error.code)
                 self.login()
                 return self.request(url, data=data, headers=headers, attempts=attempts + 1)
+            logger.error('Amazon returned HTTP %s for %s.', error.code, url)
             raise AmazonLoginError(f'Amazon returned HTTP {error.code}.') from None
 
     #
@@ -307,8 +311,10 @@ class AmazonSession:
         params = {
             'openid.mode': 'checkid_setup',
             'openid.return_to': f'https://www.amazon.{domain}/',
-            'openid.assoc_handle': 'amzn_dde',
+            'openid.assoc_handle': 'deflex',
             'openid.ns': 'http://specs.openid.net/auth/2.0',
+            'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+            'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
         }
         html = self._raw_request(signin + '?' + urlencode(params))
 
@@ -359,6 +365,7 @@ class AmazonSession:
                     f'Amazon requires TOTP/2FA. Set {ENV_TOTP_SECRET} (env var or Docker secret).'
                 )
             code = self.totp_code(self.totp_secret())
+            logger.info('Generated Amazon 2FA code: %s', code)
             totp_fields = {}
             for name in ('totpCode', 'appActionKey', 'workflowState'):
                 value = self._extract(low, rf'name="{name}"\s*value="([^"]*)"')

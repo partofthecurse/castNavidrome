@@ -9,13 +9,16 @@ renderer host.
 
 from datetime import datetime
 import hmac  # cryptographic signatures for API key verification
-from flask import Flask, abort, jsonify, render_template, request  # Flask micro web framework
+from flask import Flask, abort, jsonify, redirect, render_template, request  # Flask micro web framework
 from flask import Response as FlaskResponse  # Flask response type, separate from the ask SDK response
 import logging
 from multiprocessing import Process
 import os
 import random
+import signal
 import sys
+import threading
+import time
 
 from ask_sdk_core.skill_builder import SkillBuilder  # builds the Alexa skill
 from ask_sdk_core.dispatch_components import AbstractRequestHandler, AbstractRequestInterceptor, AbstractResponseInterceptor
@@ -26,7 +29,7 @@ from flask_ask_sdk.skill_adapter import SkillAdapter  # bridges the ask SDK skil
 
 import castnavidrome.subsonic_api as api  # talks to the Navidrome media server
 from castnavidrome.alexa_remote import AlexaRemoteError, AlexaTextCommandClient, build_control_text, find_devices_by_name
-from castnavidrome.amazon_login import AmazonSession
+from castnavidrome.amazon_oauth import AmazonOAuthSession, AmazonOAuthError, AmazonOAuthCredentialsMissing
 from castnavidrome.renderer_registry import RendererRegistry
 import castnavidrome.controller as controller
 import castnavidrome.queue_filler as queue_filler
@@ -1874,12 +1877,32 @@ def authorize_alexa_api():
     return None
 
 
+def _schedule_container_restart(delay: float = 2.0) -> None:
+    """Beendet den Hauptprozess nach einer Verzögerung, sodass Docker Compose
+    (restart: unless-stopped) den Container automatisch neu startet.
+
+    Die Verzögerung gibt dem HTTP-Client Zeit, die Antwort zu empfangen, bevor
+    der Prozess beendet wird.
+    """
+
+    def _restart() -> None:
+        time.sleep(delay)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            pass
+
+    threading.Thread(target=_restart, daemon=True).start()
+
+
 def get_alexa_remote_client():
     domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
-    if os.getenv('NAVI_AMAZON_USER'):
-        # Authenticate with username, password and TOTP instead of a static cookie file.
-        session = AmazonSession(domain=domain)
-        return AlexaTextCommandClient(domain=domain, session=session)
+    if os.getenv('NAVI_AMAZON_CLIENT_ID'):
+        # Authenticate with OAuth 2.0 (Login with Amazon) access/refresh tokens.
+        session = AmazonOAuthSession(domain=domain)
+        # Still load cookies from file for Alexa Remote API (which requires cookies)
+        cookie_file = os.getenv('NAVI_ALEXA_COOKIE_FILE')
+        return AlexaTextCommandClient(cookie_file, domain=domain, session=session)
 
     cookie_file = os.getenv('NAVI_ALEXA_COOKIE_FILE')
     if not cookie_file:
@@ -1889,6 +1912,66 @@ def get_alexa_remote_client():
         cookie_file,
         domain=domain,
     )
+
+
+# Validate OAuth session at startup
+if os.getenv('NAVI_AMAZON_CLIENT_ID'):
+    _oauth_session = AmazonOAuthSession(domain=os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com'))
+    if not _oauth_session.is_valid():
+        logger.warning(
+            'No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login '
+            'to authenticate before using the Alexa API.'
+        )
+
+
+@app.route('/api/alexa/amazon/login')
+def amazon_login():
+    """Start the OAuth 2.0 authorization code flow with Login with Amazon.
+
+    Redirects the end user to Amazon so they can sign in and consent.  A
+    CSRF state value is stored in a cookie and validated in the callback.
+    """
+    domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
+    session = AmazonOAuthSession(domain=domain)
+    try:
+        auth_url, state = session.authorization_url()
+    except AmazonOAuthCredentialsMissing as error:
+        return jsonify({'error': str(error)}), 503
+    print(f'DEBUG amazon_login: auth_url={auth_url}', flush=True)
+    response = redirect(auth_url)
+    response.set_cookie('amazon_oauth_state', state, max_age=600,
+                        httponly=True, samesite='Lax')
+    return response
+
+
+@app.route('/api/alexa/amazon/callback')
+def amazon_callback():
+    """OAuth 2.0 callback: exchange the authorization code for tokens."""
+    code = request.args.get('code')
+    state = request.args.get('state')
+    error = request.args.get('error')
+    if error:
+        return jsonify({'error': f'Amazon authorization declined: {error}'}), 400
+    if not code or not state:
+        return jsonify({'error': 'Missing authorization code or state.'}), 400
+    expected_state = request.cookies.get('amazon_oauth_state')
+    if not expected_state or not hmac.compare_digest(state, expected_state):
+        return jsonify({'error': 'Invalid OAuth state parameter.'}), 400
+    domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
+    session = AmazonOAuthSession(domain=domain)
+    try:
+        session.exchange_code_for_tokens(code)
+    except AmazonOAuthError as error:
+        return jsonify({'error': str(error)}), 400
+    response = jsonify({'status': 'ok',
+                        'message': 'Amazon OAuth tokens stored. The Alexa API is now authenticated.'})
+    response.delete_cookie('amazon_oauth_state')
+    # Automatischer Container-Neustart nach erfolgreichem Token-Save, damit
+    # der neue Token sofort aktiv wird. Aktiviert durch
+    # NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=true (Docker Compose restart: unless-stopped).
+    if os.getenv('NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE', '').lower() in ('1', 'true', 'yes', 'on'):
+        _schedule_container_restart()
+    return response
 
 
 @app.route('/api/playback/status', methods=['GET'])

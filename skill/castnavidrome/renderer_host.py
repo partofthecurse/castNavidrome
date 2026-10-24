@@ -20,7 +20,7 @@ from castnavidrome.alexa_remote import (
     build_control_text,
     build_play_track_text,
 )
-from castnavidrome.amazon_login import AmazonSession
+from castnavidrome.amazon_oauth import AmazonOAuthSession
 from castnavidrome.localization import normalize_locale
 from castnavidrome.renderer_registry import RendererRegistry
 from castnavidrome.upnp.renderer import MediaRenderer, RendererCommandError
@@ -82,7 +82,7 @@ class AlexaRendererController:
 
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', skill_name: str = 'castnavidrome',
                  locale: str = DEFAULT_ALEXA_LOCALE, subsonic_connection=None,
-                 announce: str = DEFAULT_ANNOUNCE, session: AmazonSession = None) -> None:
+                 announce: str = DEFAULT_ANNOUNCE, session: AmazonOAuthSession = None) -> None:
         self.cookie_file = cookie_file
         self.domain = domain
         self.skill_name = skill_name
@@ -397,12 +397,22 @@ class RendererHost:
         self.skill_name = self.env.get('NAVI_ALEXA_SKILL_NAME', 'castnavidrome')
         self.locale = normalize_locale(self.env.get('NAVI_ALEXA_LOCALE', DEFAULT_ALEXA_LOCALE))
         self.domain = self.env.get('NAVI_ALEXA_DOMAIN', 'amazon.com')
-        if self.env.get('NAVI_AMAZON_USER'):
-            self.cookie_file = None
-            self.session = AmazonSession(domain=self.domain)
+        if self.env.get('NAVI_AMAZON_CLIENT_ID'):
+            # Authenticate with OAuth 2.0 (Login with Amazon)
+            # Still load cookies from file for Alexa Remote API (which requires cookies)
+            self.cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
+            self.session = AmazonOAuthSession(domain=self.domain)
+            self._token_file_mtime = 0.0
+            try:
+                if self.session.token_file.is_file():
+                    self._token_file_mtime = self.session.token_file.stat().st_mtime
+            except OSError:
+                pass
         else:
+            # Fallback: static cookie file
             self.cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
             self.session = None
+            self._token_file_mtime = 0.0
         self.announce = (self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE') or '').strip().lower()
 
         if self.announce not in ANNOUNCE_MODES:
@@ -480,6 +490,12 @@ class RendererHost:
 
         self.refresh()
 
+        # Send multiple announcements at startup so that clients that start
+        # listening at slightly different times still receive them.
+        for _ in range(2):
+            time.sleep(1)
+            self.ssdp.announce()
+
         thread = threading.Thread(target=self._refresh_loop, name='renderer-refresh', daemon=True)
         thread.start()
 
@@ -521,6 +537,18 @@ class RendererHost:
 
     def refresh(self) -> None:
         """Fetch the Alexa devices and update the list of media renderers."""
+
+        # Reload OAuth tokens if the token file has changed
+        if self.session is not None:
+            try:
+                if self.session.token_file.is_file():
+                    mtime = self.session.token_file.stat().st_mtime
+                    if mtime > getattr(self, '_token_file_mtime', 0.0):
+                        self._token_file_mtime = mtime
+                        self.session._load()
+                        logger.info('Reloaded Amazon OAuth tokens from %s.', self.session.token_file)
+            except OSError:
+                pass
 
         with self._refresh_lock:
             try:

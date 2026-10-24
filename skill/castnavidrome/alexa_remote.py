@@ -1,10 +1,10 @@
-"""Client for the Alexa Remote API.
-
-The module talks to the Alexa service of Amazon to list the Alexa devices of
-an account and to send text and play commands to them.  Authentication is done
-either with a static cookie file or with an authenticated Amazon session
-(username, password and TOTP).
-"""
+# Alexa Remote API endpoints, parameterised by domain.
+# For Europe (amazon.de/etc.): api.eu.amazonalexa.com
+# For North America (amazon.com): api.amazon.com
+ALEXA_API_HOST_MAP = {
+    'com': 'api.amazon.com',
+    'de': 'api.eu.amazonalexa.com',
+}
 
 import json
 from http.cookies import SimpleCookie
@@ -67,8 +67,18 @@ class AlexaTextCommandClient:
         self.session = session
         self.opener = opener or build_opener()
         if session:
-            self.cookies = session.cookies
+            self.cookies = dict(session.cookies) if session.cookies else {}
             self.csrf = session.csrf
+            # Also load cookies from file if available (needed for Alexa Remote API)
+            if cookie_file and not self.cookies:
+                try:
+                    file_cookies = self._load_cookies(cookie_file)
+                    if file_cookies:
+                        self.cookies = file_cookies
+                        if not self.csrf:
+                            self.csrf = next((value for name, value in self.cookies.items() if name.lower() == 'csrf'), None)
+                except AlexaRemoteError:
+                    pass
         else:
             if cookie_file is None:
                 raise AlexaRemoteError('No Alexa cookie file or Amazon session configured.')
@@ -104,19 +114,35 @@ class AlexaTextCommandClient:
         return cookies
 
     def _request(self, path: str, payload: dict = None, locale: str = 'en-US') -> bytes:
-        url = f'https://alexa.{self.domain}{path}'
+        domain = self.domain
+        # Normalize domain: 'amazon.de' -> 'de', 'amazon.com' -> 'com'
+        domain_key = domain.split('amazon.')[-1] if 'amazon.' in domain else domain
+        # Use the original Alexa web API endpoint (accepts session cookies)
+        # OAuth Bearer tokens may not work with this endpoint; use cookies instead
+        alexa_host = f'alexa.{self.domain}'
+        url = f'https://{alexa_host}{path}'
         data = json.dumps(payload).encode('utf-8') if payload is not None else None
         headers = {
             'Accept': 'application/json; charset=utf-8',
             'Cookie': '; '.join(f'{name}={value}' for name, value in self.cookies.items()),
             'User-Agent': 'PitanguiBridge/2.2.527420.0-[PLATFORM=Android][MANUFACTURER=samsung][RELEASE=13][BRAND=samsung][SDK=33][MODEL=S2]',
-            'csrf': self.csrf,
             'Accept-Language': normalize_locale(locale),
         }
+        if self.csrf:
+            headers['csrf'] = self.csrf
         if data is not None:
             headers['Content-Type'] = 'application/json; charset=utf-8'
 
         request = Request(url, data=data, headers=headers)
+        # Use cookies directly (opener) if cookies are available (Alexa Remote API requires cookies)
+        if self.cookies:
+            try:
+                with self.opener.open(request, timeout=self.timeout) as response:
+                    return response.read()
+            except HTTPError as error:
+                raise AlexaRemoteError(f'Alexa returned HTTP {error.code}.', status_code=error.code) from None
+            except URLError:
+                raise AlexaRemoteError('Could not connect to the Alexa service.') from None
         if self.session is not None:
             try:
                 return self.session.request(url, data=data, headers=headers)

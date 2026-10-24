@@ -190,7 +190,7 @@ class SsdpServer:
         headers = self._parse_headers(message)
         search_target = headers.get('st', '').strip()
         if not search_target:
-            return
+            search_target = SSDP_ALL
 
         matches = [renderer for renderer in self.renderers() if self._matches(search_target, renderer.udid)]
         logger.debug('Received an SSDP search for %s from %s:%s, %s renderer(s) match.',
@@ -248,7 +248,7 @@ class SsdpServer:
         target = search_target.lower()
 
         if target == SSDP_ALL:
-            return list(self.search_targets)
+            return [SSDP_ROOT_DEVICE] + list(self.search_targets)
 
         if target == SSDP_ROOT_DEVICE:
             return [SSDP_ROOT_DEVICE] + list(self.search_targets)
@@ -298,7 +298,7 @@ class SsdpServer:
         """Send the ssdp:alive notifications for all known renderers."""
 
         for renderer in self.renderers():
-            for target in self.search_targets:
+            for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
                 payload = self._build_notify(renderer, 'ssdp:alive', target)
                 self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
 
@@ -306,7 +306,7 @@ class SsdpServer:
         """Send the ssdp:byebye notifications for all known renderers."""
 
         for renderer in self.renderers():
-            for target in self.search_targets:
+            for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
                 payload = self._build_notify(renderer, 'ssdp:byebye', target)
                 self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
 

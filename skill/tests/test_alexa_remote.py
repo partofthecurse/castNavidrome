@@ -53,7 +53,7 @@ class AlexaTextCommandClientTests(unittest.TestCase):
             'online': True,
         }])
         request = self.opener.open.call_args.args[0]
-        self.assertEqual(request.full_url, 'https://alexa.amazon.com/api/devices-v2/device?cached=false')
+        self.assertEqual(request.full_url, 'https://api.amazon.com/api/devices-v2/device?cached=false')
         self.assertIn('csrf=test-csrf', request.headers['Cookie'])
 
     def test_find_devices_by_name_matches_case_insensitively(self):
@@ -111,7 +111,7 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         self.client.send_play_command(device, 'castnavidrome')
 
         request = self.opener.open.call_args.args[0]
-        self.assertEqual(request.full_url, 'https://alexa.amazon.com/api/behaviors/preview')
+        self.assertEqual(request.full_url, 'https://api.amazon.com/api/behaviors/preview')
         command = json.loads(request.data)
         sequence = json.loads(command['sequenceJson'])
         self.assertEqual(command['behaviorId'], 'PREVIEW')
@@ -208,7 +208,7 @@ class AlexaTextCommandClientTests(unittest.TestCase):
 
     def test_http_error_preserves_status_code(self):
         self.opener.open.side_effect = __import__('urllib.error').error.HTTPError(
-            'https://alexa.amazon.com/api/behaviors/preview', 429, 'Too Many Requests', {}, None
+            'https://api.amazon.com/api/behaviors/preview', 429, 'Too Many Requests', {}, None
         )
 
         with self.assertRaises(AlexaRemoteError) as context:
