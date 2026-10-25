@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 49443
 DEFAULT_REFRESH_SECONDS = 300
-DEFAULT_MIN_REFRESH_SECONDS = 60
+DEFAULT_MIN_REFRESH_SECONDS = 10
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 
 # The prefix of the renderer names is optional.  Without it the renderers
@@ -455,6 +455,9 @@ class RendererHost:
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
 
+        self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
+        self._announce_stop = threading.Event()
+
     #
     # Setup
     #
@@ -502,9 +505,13 @@ class RendererHost:
         self.registry.load()
         self.server.start()
         self.ssdp.on_search = self._on_discovery_request
-        self.ssdp.start()
 
+        # Zuerst die Renderer-Liste füllen, bevor SSDP lauscht.  So gibt es
+        # keine Phase, in der SSDP bereits antwortet, die Renderer-Liste aber
+        # noch leer ist (Clients würden sonst leere M-SEARCH-Antworten erhalten).
         self.refresh()
+
+        self.ssdp.start()
 
         # Announce the renderers several times so that clients that start
         # listening at slightly different times still receive them.  The
@@ -515,15 +522,33 @@ class RendererHost:
         thread = threading.Thread(target=self._refresh_loop, name='renderer-refresh', daemon=True)
         thread.start()
 
+        announce_thread = threading.Thread(target=self._announce_loop, name='renderer-announce', daemon=True)
+        announce_thread.start()
+
     def stop(self) -> None:
         logger.info('Stopping the castNavidrome renderer host.')
         self._stop_event.set()
+        self._announce_stop.set()
         self.ssdp.announce_byebye()
         self.ssdp.stop()
         self.server.stop()
 
     def wait(self) -> None:
         self._stop_event.wait()
+
+    def is_healthy(self) -> bool:
+        """Return True when the renderer host and its SSDP sockets are alive."""
+        return self.ssdp.is_healthy() and self.server.is_healthy()
+
+    def _announce_loop(self) -> None:
+        """Periodically re-announce the renderers via SSDP.
+
+        Clients that boot between two refresh cycles and passively listen for
+        ssdp:alive notifications instead of sending M-SEARCH still discover the
+        renderers within ``announce_interval`` seconds.
+        """
+        while not self._announce_stop.wait(self.announce_interval):
+            self.ssdp.announce()
 
     def _refresh_loop(self) -> None:
         while not self._stop_event.wait(self.refresh_seconds):
@@ -606,12 +631,18 @@ class RendererHost:
 
         for renderer in self.server.renderers():
             if renderer.udid not in renderers:
+                self.ssdp.announce_byebye_for(renderer)
                 self.server.remove_renderer(renderer.udid)
                 logger.info('Removed the media renderer "%s" (%s).', renderer.friendly_name, renderer.udid)
 
         self.registry.save()
         self.ssdp.set_renderers(list(renderers.values()))
-        self.ssdp.announce()
+        if self.ssdp.is_healthy():
+            self.ssdp.announce()
+            # Zweiter Durchgang, damit Clients, die das M-SEARCH-Antwortfenster
+            # bereits verpasst haben oder nur passiv auf ssdp:alive lauschen,
+            # die neu gebauten Renderer dennoch entdecken.
+            self.ssdp.announce()
 
 
 def main() -> None:

@@ -323,6 +323,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_ENABLED` | Enable the renderers | `yes` |
 | `NAVI_ALEXA_RENDERER_PORT` | UPnP description/control port | `49443` |
 | `NAVI_ALEXA_RENDERER_ANNOUNCE` | Which tracks are announced: `explicit`, `always`, `never` | `explicit` |
+| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP `ssdp:alive` announcements | `60` |
 | `NAVI_ALEXA_RENDERER_STATE_FILE` | Registry mapping Alexa devices → renderer UUIDs | `/var/lib/castnavidrome/renderer-devices.json` |
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Prefix for renderer names | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Allowed device types (comma separated) | `ECHO,FIRE_TV` |

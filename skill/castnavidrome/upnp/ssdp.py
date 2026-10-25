@@ -4,6 +4,7 @@ import email.utils
 import fcntl
 import logging
 import random
+import selectors
 import socket
 import struct
 import threading
@@ -55,7 +56,8 @@ class SsdpServer:
             CONNECTIONMANAGER_SERVICE_TYPE,
         )
 
-        self._socket = None
+        self._sockets = []
+        self._selector = selectors.DefaultSelector()
         self._thread = None
         self._running = False
         self._renderers = []
@@ -79,81 +81,112 @@ class SsdpServer:
     #
 
     def start(self) -> bool:
-        """Bind the SSDP socket and start the responder thread."""
+        """Bind the SSDP sockets and start the responder thread."""
 
         try:
-            self._socket = self._create_socket()
+            self._sockets = self._create_sockets()
         except OSError as error:
-            logger.error('Could not bind the SSDP socket on port %s: %s', self.port, error)
-            self._socket = None
+            logger.error('Could not bind the SSDP sockets on port %s: %s', self.port, error)
+            self._sockets = []
             return False
+
+        for sock in self._sockets:
+            self._selector.register(sock, selectors.EVENT_READ)
 
         self._running = True
         self._thread = threading.Thread(target=self._listen, name='upnp-ssdp', daemon=True)
         self._thread.start()
-        logger.info('The SSDP responder is listening on port %s.', self.port)
+        logger.info('The SSDP responder is listening on port %s (%d socket(s)).', self.port, len(self._sockets))
 
         return True
 
     def stop(self) -> None:
         self._running = False
 
-        if self._socket:
+        for sock in self._sockets:
             try:
-                self._socket.close()
+                self._selector.unregister(sock)
+            except (OSError, KeyError, ValueError):
+                pass
+            try:
+                sock.close()
             except OSError:
                 pass
-            self._socket = None
+        self._sockets = []
 
-    def _create_socket(self) -> socket.socket:
-        udp_socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    def _create_sockets(self) -> list:
+        """Create IPv4 and IPv6 SSDP sockets and join the multicast groups.
 
-        # Try to bind to IPv6 first, then fallback to IPv4 if needed
+        SSDP uses IPv4 multicast on 239.255.255.250 and IPv6 multicast on
+        ff02::c / ff05::c.  An IPv6 socket does not receive IPv4 multicast, so
+        one socket per protocol family is required.
+        """
+        sockets = []
+
+        # --- IPv4 socket (239.255.255.250) ---
         try:
-            udp_socket.bind(('', self.port, 0, socket.IPPROTO_IPV6))
-            udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 4)
-            udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_LOOP, 1)
-        except OSError:
-            # Fallback to IPv4
-            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            udp_socket.bind(('', self.port))
-            udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
-            udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
-
-        # Join both IPv4 and IPv6 multicast groups
-        group_v4 = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
-        group_v6 = socket.inet_pton(socket.AF_INET6, 'ff02::c')
-
-        joined = False
-        for address in self._local_addresses():
-            try:
-                # Try IPv4 first
-                udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                                      group_v4 + socket.inet_aton(address))
-                joined = True
-                break
-            except OSError:
+            v4 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            v4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            v4.bind(('', self.port))
+            v4.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+            v4.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
+            group_v4 = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
+            joined = False
+            for address in self._local_addresses():
+                if '.' not in address:
+                    continue
                 try:
-                    # Then try IPv6
-                    udp_socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
-                                          socket.inet_pton(socket.AF_INET6, '::' + address))
+                    v4.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                                  group_v4 + socket.inet_aton(address))
                     joined = True
                     break
+                except OSError:
+                    pass
+            if not joined:
+                try:
+                    v4.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                                  group_v4 + b'\x00\x00\x00\x00')
                 except OSError as error:
-                    logger.debug('Could not join the SSDP multicast group on %s: %s', address, error)
+                    logger.warning('Could not join the IPv4 SSDP multicast group: %s', error)
+            sockets.append(v4)
+            logger.info('IPv4 SSDP socket listening on port %s (multicast %s).', self.port, SSDP_MULTICAST_ADDRESS)
+        except OSError as error:
+            logger.warning('Could not create the IPv4 SSDP socket on port %s: %s', self.port, error)
 
-        if not joined:
-            # Try both IPv4 and IPv6 fallback
-            try:
-                udp_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, group_v4 + b'\x00\x00\x00\x00')
-            except OSError as error:
-                logger.warning('Could not join the SSDP multicast group (IPv4): %s', error)
+        # --- IPv6 socket (ff02::c, ff05::c) ---
+        try:
+            v6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            v6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # IPv6-only so that the IPv4 socket can bind to port 1900 as well.
+            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            v6.bind(('', self.port, 0, socket.IPPROTO_IPV6))
+            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 4)
+            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_LOOP, 1)
+            joined = False
+            for _, name in socket.if_nameindex():
+                try:
+                    index = socket.if_nametoindex(name)
+                except OSError:
+                    continue
+                for group in (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_SITE_LOCAL_IPV6_ADDRESS):
+                    group_bin = socket.inet_pton(socket.AF_INET6, group)
+                    mreq = group_bin + struct.pack('@I', index)
+                    try:
+                        v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP, mreq)
+                        joined = True
+                    except OSError:
+                        pass
+            if not joined:
+                logger.warning('Could not join any IPv6 SSDP multicast group.')
+            sockets.append(v6)
+            logger.info('IPv6 SSDP socket listening on port %s.', self.port)
+        except OSError as error:
+            logger.warning('Could not create the IPv6 SSDP socket on port %s: %s', self.port, error)
 
-        udp_socket.settimeout(1)
+        if not sockets:
+            raise OSError('Could not create any SSDP socket')
 
-        return udp_socket
+        return sockets
 
     @staticmethod
     def _local_addresses() -> list:
@@ -218,16 +251,23 @@ class SsdpServer:
     def _listen(self) -> None:
         while self._running:
             try:
-                data, address = self._socket.recvfrom(2048)
-            except socket.timeout:
-                continue
+                events = self._selector.select(timeout=1.0)
             except OSError:
                 break
+            if not self._running:
+                break
 
-            try:
-                self._handle_message(data.decode('utf-8', 'replace'), address)
-            except Exception as error:  # pragma: no cover - defensive
-                logger.warning('Could not handle an SSDP message: %s', error)
+            for key, _mask in events:
+                sock = key.fileobj
+                try:
+                    data, address = sock.recvfrom(2048)
+                except OSError:
+                    continue
+
+                try:
+                    self._handle_message(data.decode('utf-8', 'replace'), address)
+                except Exception as error:  # pragma: no cover - defensive
+                    logger.warning('Could not handle an SSDP message: %s', error)
 
     #
     # Message handling
@@ -256,13 +296,24 @@ class SsdpServer:
         if mx > 5:
             mx = 5.0
 
+        # Every response gets an independent random delay within [0, mx] so that
+        # the answers of all renderers (and targets) stay inside the waiting
+        # window of the client instead of being serialized one after the other.
+        replies = []
         for renderer in matches:
             for target in self._response_targets(search_target):
-                if mx:
-                    time.sleep(random.uniform(0, mx))
-                response = self._build_search_response(target, renderer)
-                logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\r\n', ' | '))
-                self._sendto(response, address)
+                delay = random.uniform(0.0, mx) if mx else 0.0
+                replies.append((delay, renderer, target))
+
+        replies.sort(key=lambda item: item[0])
+        last = 0.0
+        for delay, renderer, target in replies:
+            if delay > last:
+                time.sleep(delay - last)
+            last = delay
+            response = self._build_search_response(target, renderer)
+            logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\r\n', ' | '))
+            self._sendto(response, address)
 
         if self.on_search:
             try:
@@ -341,20 +392,20 @@ class SsdpServer:
         return '\r\n'.join(lines).encode('utf-8')
 
     def _sendto(self, payload: bytes, address) -> None:
-        if not self._socket:
+        if not self._sockets:
+            return
+
+        host = address[0]
+        if '.' in host:
+            candidates = [sock for sock in self._sockets if sock.family == socket.AF_INET]
+        else:
+            candidates = [sock for sock in self._sockets if sock.family == socket.AF_INET6]
+
+        if not candidates:
             return
 
         try:
-            if self._socket.family == socket.AF_INET6:
-                # IPv6 socket
-                dest_addr = address
-                if address[0] and '.' in address[0] and ':' not in address[0]:
-                    # IPv4 address
-                    dest_addr = (f'::ffff:{address[0]}', address[1])
-                self._socket.sendto(payload, dest_addr)
-            else:
-                # IPv4 socket
-                self._socket.sendto(payload, address)
+            candidates[0].sendto(payload, address)
         except OSError as error:
             logger.debug('Could not send the SSDP response to %s: %s', address, error)
 
@@ -404,6 +455,21 @@ class SsdpServer:
                     self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
             time.sleep(delay)
 
+    def announce_byebye_for(self, renderer) -> None:
+        """Sendet ssdp:byebye für einen einzelnen Renderer.
+
+        Damit entfernen Clients den Renderer sofort aus ihrem Cache,
+        anstatt bis zum Ablauf von CACHE-CONTROL max-age zu warten.
+        """
+        if not self.is_healthy():
+            return
+
+        for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+            payload = self._build_notify(renderer, 'ssdp:byebye', target)
+            self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
+            self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+            self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
+
     def _build_notify(self, renderer, notification_subtype: str, notify_type: str) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'
 
@@ -421,6 +487,10 @@ class SsdpServer:
         ]
 
         return '\r\n'.join(lines).encode('utf-8')
+
+    def is_healthy(self) -> bool:
+        """Return True when the SSDP sockets are bound and the listener is alive."""
+        return bool(self._sockets) and self._thread is not None and self._thread.is_alive()
 
     @staticmethod
     def _udid(udid: str) -> str:

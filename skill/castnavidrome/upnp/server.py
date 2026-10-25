@@ -515,3 +515,7 @@ class RendererServer:
             self._httpd.shutdown()
             self._httpd.server_close()
             self._httpd = None
+
+    def is_healthy(self) -> bool:
+        """Return True when the HTTP server thread is running."""
+        return self._httpd is not None and self._thread is not None and self._thread.is_alive()
