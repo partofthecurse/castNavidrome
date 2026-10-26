@@ -171,6 +171,19 @@ class RendererHostTests(unittest.TestCase):
 
         self.assertEqual(host.controller.announce, 'explicit')
 
+    def test_the_disable_refresh_setting_is_respected(self):
+        self.env['NAVI_ALEXA_RENDERER_DISABLE_REFRESH'] = 'true'
+
+        host = RendererHost(env=self.env)
+
+        self.assertTrue(host.disable_refresh)
+
+        self.env['NAVI_ALEXA_RENDERER_DISABLE_REFRESH'] = 'false'
+
+        host = RendererHost(env=self.env)
+
+        self.assertFalse(host.disable_refresh)
+
 
 class FakeAlexaClient:
     """A stand in for the client that sends the commands to the Alexa device."""

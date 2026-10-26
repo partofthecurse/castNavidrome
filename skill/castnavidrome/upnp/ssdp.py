@@ -39,11 +39,13 @@ class SsdpServer:
     """Announces the media renderers via SSDP."""
 
     def __init__(self, advertise_host: str = '127.0.0.1', http_port: int = 49443,
-                 device_type: str = MEDIA_RENDERER_DEVICE_TYPE, port: int = SSDP_PORT) -> None:
+                 device_type: str = MEDIA_RENDERER_DEVICE_TYPE, port: int = SSDP_PORT,
+                 mx: float = 0.0) -> None:
         self.advertise_host = advertise_host
         self.http_port = http_port
         self.device_type = device_type
         self.port = port
+        self.mx = max(0.0, float(mx))
 
         # The search targets the renderers answer to.  A client that searches
         # for "ssdp:all" expects one answer per target, and clients like
@@ -274,9 +276,6 @@ class SsdpServer:
     #
 
     def _handle_message(self, message: str, address) -> None:
-        if not message.upper().startswith('M-SEARCH'):
-            return
-
         headers = self._parse_headers(message)
         search_target = headers.get('st', '').strip()
         if not search_target:
@@ -285,24 +284,15 @@ class SsdpServer:
         matches = [renderer for renderer in self.renderers() if self._matches(search_target, renderer.udid)]
         logger.debug('Received an SSDP search for %s from %s:%s, %s renderer(s) match.',
                      search_target, address[0], address[1], len(matches))
-        logger.debug('The SSDP search was: %s', message.replace('\r\n', ' | '))
+        logger.debug('The SSDP search was: %s', message.replace('\\r\\n', ' | '))
 
-        try:
-            mx = float(headers.get('mx', '1'))
-        except (TypeError, ValueError):
-            mx = 1.0
-        if mx < 0:
-            mx = 0.0
-        if mx > 5:
-            mx = 5.0
-
-        # Every response gets an independent random delay within [0, mx] so that
-        # the answers of all renderers (and targets) stay inside the waiting
-        # window of the client instead of being serialized one after the other.
+        # Send responses with a random delay up to the configured MX value
+        # so that bursts of M-SEARCH answers are spread out.  A value of
+        # zero (the default) keeps the previous immediate behaviour.
         replies = []
         for renderer in matches:
             for target in self._response_targets(search_target):
-                delay = random.uniform(0.0, mx) if mx else 0.0
+                delay = random.uniform(0.0, self.mx) if self.mx > 0 else 0.0
                 replies.append((delay, renderer, target))
 
         replies.sort(key=lambda item: item[0])
@@ -312,7 +302,7 @@ class SsdpServer:
                 time.sleep(delay - last)
             last = delay
             response = self._build_search_response(target, renderer)
-            logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\r\n', ' | '))
+            logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
             self._sendto(response, address)
 
         if self.on_search:

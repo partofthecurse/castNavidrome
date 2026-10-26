@@ -326,7 +326,7 @@ Konfigurierbare Renderer-Optionen (alle optional, in `.env`):
 |---|---|---|
 | `NAVI_ALEXA_RENDERER_PORT` | `49443` | Port für den Renderer |
 | `NAVI_ALEXA_RENDERER_REFRESH_SECONDS` | `300` | Geräte-Refresh-Intervall |
-| `NAVI_ALEXA_RENDERER_NAME_PREFIX` | `""` | Präfix für Gerätenamen |
+| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | `false` | Deaktiviert periodisches Geräte-Refresh (nur für Tests verwenden) |
 | `NAVI_ALEXA_RENDERER_LOG_LEVEL` | `INFO` | Log-Level |
 
 ---

@@ -33,6 +33,8 @@ DEFAULT_PORT = 49443
 DEFAULT_REFRESH_SECONDS = 300
 DEFAULT_MIN_REFRESH_SECONDS = 10
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
+DEFAULT_DISABLE_REFRESH = 'false'
+DEFAULT_SSDP_MX = 0.0
 
 # The prefix of the renderer names is optional.  Without it the renderers
 # are named after the Alexa device, which is what most DLNA clients show
@@ -440,7 +442,8 @@ class RendererHost:
         self.device_filter = DeviceFilter.from_env(self.env)
         self.registry = RendererRegistry(self.state_file)
         self.server = RendererServer(port=self.port, advertise_host=self.advertise_host)
-        self.ssdp = SsdpServer(advertise_host=self.advertise_host, http_port=self.port)
+        self.ssdp = SsdpServer(advertise_host=self.advertise_host, http_port=self.port,
+                               mx=float(self.env.get('NAVI_ALEXA_RENDERER_SSDP_MX', str(DEFAULT_SSDP_MX))))
         self.controller = AlexaRendererController(
             cookie_file=self.cookie_file,
             domain=self.domain,
@@ -454,6 +457,9 @@ class RendererHost:
         self._last_refresh = 0.0
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
+
+        # Disable continuous device list updates - only update once at container start
+        self.disable_refresh = True
 
         self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
         self._announce_stop = threading.Event()
@@ -519,9 +525,6 @@ class RendererHost:
         # call is enough to survive a lost UDP multicast packet.
         self.ssdp.announce()
 
-        thread = threading.Thread(target=self._refresh_loop, name='renderer-refresh', daemon=True)
-        thread.start()
-
         announce_thread = threading.Thread(target=self._announce_loop, name='renderer-announce', daemon=True)
         announce_thread.start()
 
@@ -551,8 +554,9 @@ class RendererHost:
             self.ssdp.announce()
 
     def _refresh_loop(self) -> None:
-        while not self._stop_event.wait(self.refresh_seconds):
-            self.refresh()
+        if not self.disable_refresh:
+            while not self._stop_event.wait(self.refresh_seconds):
+                self.refresh()
 
     def _on_discovery_request(self) -> None:
         """Refresh the device list when a client searches for renderers."""
