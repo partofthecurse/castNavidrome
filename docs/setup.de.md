@@ -26,20 +26,18 @@ cd castNavidrome
 
 1. Gehe zur [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask).
 2. Klicke auf **Create Skill**.
-3. Wähle einen Namen (z. B. `castNavidrome`), das Standard-Modell **Custom** und die Methode **Provision your own**.
-4. Wähle als Sprache die gewünschte Sprache (z. B. `Deutsch (DE)` oder `English (US)`).
-5. Kopiere den **Skill ID** (sieht aus wie `amzn1.ask.skill.xxxx-xxxx-...`) — du brauchst ihn als `NAVI_SKILL_ID`.
+3. Wähle einen Namen (z. B. `castNavidrome`), das Modell **Custom** und die Methode **Provision your own**.
+4. Wähle die gewünschte Sprache (z. B. `German (DE)` oder `English (US)`).
+5. Kopiere die **Skill ID** (sieht aus wie `amzn1.ask.skill.xxxx-xxxx-...`) — du brauchst sie als `NAVI_SKILL_ID`.
 6. Füge unter **Interaction Model** die Intents und Slots hinzu (siehe `skill/alexa.json` im Repository für ein fertiges de-DE/en-US-Modell).
-7. Unter **Endpoint** wählst du später deine HTTPS-Endpunkt-URL (über Tailscale Funnel oder eigenen Reverse Proxy).
+7. Unter **Endpoint** trägst du später deine öffentliche HTTPS-Endpunkt-URL ein (über Tailscale Funnel oder eigenen Reverse Proxy).
 8. Speichere und baue das Modell.
 
-**Wichtig:** Wenn du den stillen Auto-Advance (Weiter zum nächsten Track ohne Ansage) nutzen willst, muss das Interaction Model den Intent `NaviSonicPlaySongByArtistQuiet` enthalten.
+**Wichtig:** Wenn du den stillen Auto-Advance nutzen willst (Weiter zum nächsten Track ohne Ansage), muss das Interaction Model den Intent `NaviSonicPlaySongByArtistQuiet` enthalten.
 
 ---
 
 ## 4. Konfigurationsdatei `.env` erstellen
-
-Kopiere die Beispiel-Datei und passe die Werte an:
 
 ```bash
 cp .env.example .env
@@ -64,34 +62,30 @@ NAVI_PASS=dein-navidrome-passwort
 # ---- Alexa skill ----
 NAVI_ALEXA_API_KEY=ein-zufalliger-schluessel-zum-schutz-des-api
 
-# Amazon login (eine Methode auswählen)
+# Amazon-Login (Login with Amazon / OAuth 2.0, empfohlen)
+NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.00000000000000000000000000000000
+NAVI_AMAZON_CLIENT_SECRET=dein-client-secret
+NAVI_AMAZON_REDIRECT_URI=https://castnavidrome.deine-domain.test/api/alexa/amazon/callback
+NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
+NAVI_ALEXA_DOMAIN=amazon.de
 
-# Option A: OAuth 2.0 / Login with Amazon (empfohlen, langfristig stabil)
-# NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.00000000000000000000000000000000
-# NAVI_AMAZON_CLIENT_SECRET=Ihr-Client-Secret
-# NAVI_AMAZON_REDIRECT_URI=https://castnavidrome.ihr-domain.test/api/alexa/amazon/callback
-# NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
-# NAVI_ALEXA_DOMAIN=amazon.de
-
-# Option B: Cookie-Datei (manueller Fallback)
+# Cookie-Datei-Fallback (optional)
 # NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
 ```
 
-### NAVI_ALEXA_API_KEY generieren
-
-Der API Key schützt den HTTP-Endpoint vor unbefugtem Zugriff. Erzeugen Sie einen starken Schlüssel:
+### `NAVI_ALEXA_API_KEY` generieren
 
 ```bash
 openssl rand -hex 32
 ```
 
-Tragen Sie den Ausgabe-String als `NAVI_ALEXA_API_KEY` in `.env` ein.
+Trage den Ausgabestring als `NAVI_ALEXA_API_KEY` in `.env` ein.
 
 ---
 
-## 5. Amazon OAuth 2.0 / Login with Amazon einrichten (empfohlen)
+## 5. Login with Amazon (OAuth 2.0) — empfohlen
 
-castNavidrome nutzt den offiziellen OAuth 2.0 Authorization Code Flow von Login with Amazon (LWA), um sich bei Amazon zu authentifizieren. Das ist die stabile, langfristige Methode, da Amazons klassische Anmeldeseite (`/ap/signin`) nicht mehr zuverlässig funktioniert.
+castNavidrome nutzt den offiziellen OAuth 2.0 Authorization Code Flow von Login with Amazon (LWA). Das ist die stabile, langfristige Methode, da Amazons klassische Anmeldeseite (`/ap/signin`) nicht mehr zuverlässig funktioniert.
 
 ### Schritt 1: Login with Amazon Security Profile anlegen
 
@@ -103,40 +97,31 @@ castNavidrome nutzt den offiziellen OAuth 2.0 Authorization Code Flow von Login 
    - **Client ID** (beginnt mit `amzn1.application-oa2-client.`)
    - **Client Secret**
 
-### Schritt 2: Redirect URI in der Amazon Developer Console registrieren
+### Schritt 2: Redirect URI und Allowed Origin registrieren
 
 Damit Amazon den OAuth-Callback akzeptiert, muss die Redirect URI exakt im Security Profile hinterlegt sein:
 
 1. Öffne dein Security Profile in der Login with Amazon Console → Reiter **Web Settings**.
-2. Füge bei **Allowed Return URLs** folgenden Eintrag hinzu:
+2. Unter **Allowed Origins** füge deine öffentliche castNavidrome-Origin hinzu, z. B.:
 
    ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
+   https://castnavidrome.deine-domain.test
    ```
 
-   Ersetze `deine-castnavidrome-domain.test` durch deine öffentliche castNavidrome-Domain (z. B. `https://castnavidrome.drake-aldebaran.ts.net`).
-3. Klicke auf **Save**.
+3. Unter **Allowed Return URLs** füge hinzu:
+
+   ```
+   https://castnavidrome.deine-domain.test/api/alexa/amazon/callback
+   ```
+
+   Ersetze `castnavidrome.deine-domain.test` durch deine öffentliche castNavidrome-Domain (z. B. `https://castnavidrome.drake-aldebaran.ts.net`).
+4. Klicke auf **Save**.
 
 > **Wichtig:** Die Redirect URI muss exakt mit `NAVI_AMAZON_REDIRECT_URI` in deiner `.env` übereinstimmen — auch ein eventueller Trailing Slash muss identisch sein.
 
 ### Schritt 3: Umgebungsvariablen in `.env` setzen
 
-Trage die Werte aus Schritt 1 in deine `.env` ein:
-
-```env
-# Amazon OAuth (Login with Amazon)
-NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.deine-client-id
-NAVI_AMAZON_CLIENT_SECRET=dein-client-secret
-NAVI_AMAZON_REDIRECT_URI=https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
-NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
-```
-
-Zusätzlich benötigst du `NAVI_ALEXA_DOMAIN`, um festzulegen, welcher Amazon-Marktplatz verwendet wird:
-
-```env
-# Amazon-Marktplatz für den Login
-NAVI_ALEXA_DOMAIN=amazon.de
-```
+Trage die Werte aus Schritt 1 in `.env` ein (siehe Abschnitt 4).
 
 | Variable | Bedeutung |
 |----------|-----------|
@@ -154,12 +139,10 @@ NAVI_ALEXA_DOMAIN=amazon.de
    docker compose up -d --build
    ```
 
-   Die OAuth-Variablen werden automatisch an beide Container (`castnavidrome` und `castnavidrome-renderer`) übergeben.
-
 2. Rufe im Browser die Login-URL auf:
 
    ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/login
+   https://castnavidrome.deine-domain.test/api/alexa/amazon/login
    ```
 
 3. Melde dich mit deinem Amazon-Konto an und erteile castNavidrome die Berechtigung, auf deine Alexa-Geräte zuzugreifen.
@@ -174,61 +157,30 @@ Beim Start des Haupt-Containers wird geprüft, ob gültige OAuth-Token vorliegen
 No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login to authenticate before using the Alexa API.
 ```
 
-Das ist nach dem ersten Start normal — erst die Token durch den Aufruf von `/api/alexa/amazon/login` erstellen.
+Das ist nach dem ersten Start normal — erstelle die Token durch den Aufruf von `/api/alexa/amazon/login`.
 
 ---
 
-## 6. Alexa-Cookies exportieren (Fallback)
+## 6. Cookie-Datei-Fallback (optional)
 
-castNavidrome benötigt ein Alexa-Cookie, um mit den Amazon-Alexa-Servern zu kommunizieren.
-
-### Option A: Cookie aus dem Browser exportieren
+Falls der OAuth-Login nicht funktioniert (z. B. wegen CAPTCHA oder zusätzlicher Verifizierungsschritte), kann eine statische Alexa-Cookie-Datei verwendet werden.
 
 1. Melde dich bei https://alexa.amazon.de (oder .com) im Browser an.
 2. Exportiere das Session-Cookie (z. B. mit der Browser-Erweiterung "Export Cookies" oder über die Entwicklertools).
 3. Speichere die Cookies als `.secrets/alexa.cookies` im Projektordner.
-
-### Option B: TOTP-Fluss (automatisch)
-
-Wenn `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS` und `NAVI_AMAZON_TOTP_SECRET` in `.env` gesetzt sind, meldet sich castNavidrome automatisch bei Amazon ab und holt ein frisches Cookie — kein manuelles Kopieren nötig.
-
-### Option C: OAuth 2.0 / Login with Amazon (empfohlen)
-
-Das ist die stabilen, langfristige Anmeldemethode. Die normale Amazon-Anmeldeseite (`/ap/signin`) funktioniert nicht mehr zuverlässig, deshalb nutzt castNavidrome den offiziellen OAuth-Fluss — genauso wie die Home Assistant Skills.
-
-1. Gehen Sie zur [Login with Amazon Console](https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html) und legen Sie ein Sicherheitsprofil an.
-2. Notieren Sie sich die **Client ID** und den **Client Secret**.
-3. Tragen Sie beides in `.env` ein:
-   ```env
-   NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.xxxxx
-   NAVI_AMAZON_CLIENT_SECRET=Ihr-Client-Secret
-   NAVI_AMAZON_REDIRECT_URI=https://castnavidrome.ihr-domain.test/api/alexa/amazon/callback
-   ```
-   Ersetzen Sie `https://castnavidrome.ihr-domain.test` durch die öffentliche URL Ihrer castNavidrome-Instanz.
-4. Starten Sie den Container neu:
-   ```bash
-   docker compose up -d --build castnavidrome
-   ```
-5. Öffnen Sie im Browser:
-   ```
-   https://castnavidrome.ihr-domain.test/api/alexa/amazon/login
-   ```
-6. Melden Sie sich mit Ihrem Amazon-Konto an und erlauben Sie castNavidrome den Zugriff auf Ihre Alexa-Geräte.
-7. Sie werden zurück zu castNavidrome weitergeleitet, und die Zugriffs- und Refresh-Token werden in `amazon_oauth_token.json` gespeichert. Ab sofort funktioniert die Alexa-API automatisch; abgelaufene Token werden im Hintergrund erneuert.
-
-Falls etwas nicht funktioniert, können Sie weiterhin auf Option A (Cookie-Datei) oder Option B (TOTP) ausweichen.
+4. Setze `NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies` in `.env`.
 
 > **Hinweis:** `.secrets/`, `.env` und die Token-Datei werden nicht ins Git-Repository committet (siehe `.gitignore`).
 
 ---
 
-## 6. Docker Compose starten
+## 7. Docker Compose starten
 
 ```bash
 docker compose up -d --build
 ```
 
-Das baut das Image und startet drei Container:
+Dies baut das Image und startet drei Container:
 
 - `castnavidrome` — die Alexa-Skill-Weboberfläche (Flask)
 - `castnavidrome-renderer` (optional) — stellt jedes Alexa-Gerät als UPnP-MediaRenderer bereit (benutzt Host-Netzwerk für SSDP)
@@ -248,13 +200,11 @@ docker compose up -d --build castnavidrome-renderer
 
 ---
 
-## 7. Tailscale einrichten (empfohlen für externen Zugriff)
+## 8. Tailscale einrichten (empfohlen für externen Zugriff)
 
-Tailscale ermöglicht es, den Skill ohne Port-Forwarding im Router über eine stabile HTTPS-URL erreichbar zu machen.
-
-1. Erstelle einen [Tailscale Auth Key](https://login.tailscale.com/admin/settings/keys) (typ "ephemeral" oder "reusable").
+1. Erstelle einen [Tailscale Auth Key](https://login.tailscale.com/admin/settings/keys) (Typ "ephemeral" oder "reusable").
 2. Trage ihn in `.env` ein: `TS_AUTHKEY=tskey-auth-...`
-3. Erstelle eine `config/serve.json` für den Tailscale-Webserver:
+3. Erstelle eine `config/serve.json`:
 
 ```json
 {
@@ -269,16 +219,12 @@ Tailscale ermöglicht es, den Skill ohne Port-Forwarding im Router über eine st
 ```
 
 4. Starte `docker compose up -d`.
-5. In der Tailscale Admin-Konsole aktiviere **Funnel** für den castNavidrome-Knoten, sodass die Tailscale-IP öffentlich über HTTPS erreichbar ist.
+5. Aktiviere in der Tailscale Admin-Konsole **Funnel** für den castNavidrome-Knoten.
 6. Trage die Funnel-URL als `NAVI_BASE_URL` in `.env` ein und gib sie im Alexa Skill als Endpoint an.
-
-### Tailscale Sidecar-Ansatz
-
-Alternativ kann Tailscale als Sidecar-Container neben castNavidrome laufen (bereits in der `docker-compose.yml` enthalten). Die `tailscale/tailscale:latest`-Image stellt das VPN bereit, castNavidrome erreicht es über `http://tailscale-castnavidrome:41234`.
 
 ---
 
-## 8. Alexa Skill Endpoint verknüpfen
+## 9. Alexa Skill Endpoint verknüpfen
 
 1. Gehe in der Alexa Developer Console zu deinem Skill → **Endpoint**.
 2. Wähle **HTTPS** und trage die öffentliche URL des castNavidrome-Servers ein, z. B.:
@@ -293,12 +239,12 @@ oder mit Funnel:
 https://abc123-def456.tail...  # deine Funnel-URL
 ```
 
-3. Wähle als Zertifikat **My development endpoint is a sub-domain of a domain that has a wildcard certificate from a certificate authority** (wenn du Tailscale Funnel nutzt, ist das Zertifikat bereits gültig).
+3. Wähle als Zertifikat **My development endpoint is a sub-domain of a domain that has a wildcard certificate from a certificate authority**.
 4. Speichere.
 
 ---
 
-## 9. Skill testen
+## 10. Skill testen
 
 1. In der Alexa Developer Console: **Test** → Skill-Entwicklung aktivieren.
 2. Sage zu einem Alexa-Gerät: „Alexa, öffne castNavidrome“ (oder dein gewählter Invocation-Name).
@@ -312,15 +258,11 @@ https://abc123-def456.tail...  # deine Funnel-URL
 
 ---
 
-## 10. Media Renderer (UPnP) aktivieren (optional)
-
-Wenn du castNavidrome als UPnP-MediaRenderer nutzen möchtest (z. B. für Symfonium oder andere UPnP-Clients):
+## 11. Media Renderer (UPnP) — optional
 
 1. Setze `NAVI_ALEXA_RENDERER_ENABLED=yes` (Standard).
 2. Starte den `castnavidrome-renderer`-Container mit `network_mode: host`.
 3. Der Renderer meldet sich per SSDP im Netzwerk und erscheint in UPnP-Clients als separates Gerät pro Alexa-Device.
-
-Konfigurierbare Renderer-Optionen (alle optional, in `.env`):
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -331,14 +273,14 @@ Konfigurierbare Renderer-Optionen (alle optional, in `.env`):
 
 ---
 
-## 11. Update auf eine neuere Version
+## 12. Update auf eine neuere Version
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Oder, wenn du das Image selbst baust:
+Oder:
 
 ```bash
 docker compose up -d --build
@@ -348,7 +290,7 @@ Der State (Amazon-Session, Renderer-Devices) liegt in `./state` und bleibt bei U
 
 ---
 
-## 12. Fehlersuche
+## 13. Fehlersuche
 
 | Problem | Lösung |
 |---|---|
@@ -368,9 +310,7 @@ docker compose logs -f tailscale
 
 ---
 
-## 13. Fertiges Docker Image
-
-Ein vorgebautes Image wird bei jedem Release auf [GitHub Container Registry (GHCR)](https://github.com/partofthecurse/castNavidrome/pkgs/container/castnavidrome) bereitgestellt:
+## 14. Fertiges Docker Image
 
 ```bash
 docker pull ghcr.io/partofthecurse/castnavidrome:latest
@@ -390,6 +330,6 @@ docker build -t castnavidrome:local .
 
 ---
 
-## 14. Lizenz & Credits
+## 15. Lizenz & Credits
 
 castNavidrome basiert auf [AskNavidrome](https://github.com/rosskouk/asknavidrome) von Ross Stewart (MIT-Lizenz). Siehe `LICENSE` und `CREDITS.md` für Details.
