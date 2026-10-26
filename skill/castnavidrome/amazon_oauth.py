@@ -47,7 +47,10 @@ DEFAULT_TOKEN_FILE = Path('/var/lib/castnavidrome/amazon_oauth_token.json')
 # Safety margin before the access token is considered expired.
 TOKEN_LEEWAY_SECONDS = 60
 
-DEFAULT_SCOPES = 'alexa::devices:all'
+# Default OAuth scope.  Login with Amazon only needs the ``profile`` scope for
+# the Alexa Remote API; the wider ``alexa::devices:all`` scope is not required
+# and asks for more permissions than necessary.
+DEFAULT_SCOPES = 'profile'
 
 # Login with Amazon endpoints.
 AUTHORIZE_HOST = 'www.amazon.{domain}'

@@ -6,13 +6,31 @@ services:
       dockerfile: Dockerfile
     image: 'castnavidrome:local'
     environment:
+      # ---- Required (no default) ----
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
+      - 'NAVI_URL=${NAVI_URL}'
+      - 'NAVI_BASE_URL=${NAVI_BASE_URL}'
+      - 'NAVI_USER=${NAVI_USER}'
       - 'NAVI_PASS=${NAVI_PASS}'
       - 'NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}'
+      - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME}'
+      - 'TS_AUTHKEY=${TS_AUTHKEY}'
+      # ---- Optional (defaults in skill/app.py) ----
+      - 'NAVI_PORT=${NAVI_PORT:-443}'
+      - 'NAVI_API_PATH=${NAVI_API_PATH:-/rest}'
+      - 'NAVI_API_VER=${NAVI_API_VER:-1.16.1}'
+      - 'NAVI_API_TIMEOUT=${NAVI_API_TIMEOUT:-10}'
+      - 'NAVI_DEBUG=${NAVI_DEBUG:-0}'
+      - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
+      - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}'
+      # Amazon OAuth (Login with Amazon) - required when the OAuth flow is used
       - 'NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID}'
       - 'NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET}'
       - 'NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI}'
-      - 'TS_AUTHKEY=${TS_AUTHKEY}'
+      - 'NAVI_AMAZON_TOKEN_FILE=${NAVI_AMAZON_TOKEN_FILE:-/var/lib/castnavidrome/amazon_oauth_token.json}'
+      - 'NAVI_AMAZON_SCOPES=${NAVI_AMAZON_SCOPES:-profile}'
+      - 'NAVI_AMAZON_SESSION_FILE=${NAVI_AMAZON_SESSION_FILE:-/var/lib/castnavidrome/amazon_session.json}'
+      - 'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=${NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE}'
     volumes:
       - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
       - './state:/var/lib/castnavidrome'
@@ -48,14 +66,21 @@ services:
     network_mode: host
     command: ['python3', '-m', 'castnavidrome.renderer_host']
     environment:
-      - 'NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies'
+      # ---- Required (no default) ----
+      - 'NAVI_URL=${NAVI_URL}'
+      - 'NAVI_USER=${NAVI_USER}'
+      - 'NAVI_PASS=${NAVI_PASS}'
+      - 'NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}'
+      - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME}'
+      - 'TS_AUTHKEY=${TS_AUTHKEY}'
+      # ---- Optional (defaults in skill/castnavidrome/renderer_host.py) ----
       - 'NAVI_ALEXA_RENDERER_LOG_LEVEL=${NAVI_ALEXA_RENDERER_LOG_LEVEL:-INFO}'
       - 'NAVI_ALEXA_RENDERER_ENABLED=${NAVI_ALEXA_RENDERER_ENABLED:-true}'
-      - 'NAVI_ALEXA_RENDERER_STATE_FILE=/var/lib/castnavidrome/renderer-devices.json'
+      - 'NAVI_ALEXA_RENDERER_STATE_FILE=${NAVI_ALEXA_RENDERER_STATE_FILE:-/var/lib/castnavidrome/renderer-devices.json}'
       - 'NAVI_ALEXA_RENDERER_ADVERTISE_HOST=${NAVI_ALEXA_RENDERER_ADVERTISE_HOST:-}'
       - 'NAVI_ALEXA_RENDERER_PORT=${NAVI_ALEXA_RENDERER_PORT:-49443}'
       - 'NAVI_ALEXA_RENDERER_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_REFRESH_SECONDS:-300}'
-      - 'NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS:-10}'
+      - 'NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS=${NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS:-60}'
       - 'NAVI_ALEXA_RENDERER_NAME_PREFIX=${NAVI_ALEXA_RENDERER_NAME_PREFIX:-}'
       - 'NAVI_ALEXA_RENDERER_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_DEVICE_TYPES:-}'
       - 'NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES=${NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES:-TABLET,E_READER,EBOOK_READER,KINDLE,ECHO_READER,FIRE_READER}'
@@ -65,23 +90,32 @@ services:
       - 'NAVI_ALEXA_RENDERER_ONLY_ONLINE=${NAVI_ALEXA_RENDERER_ONLY_ONLINE:-false}'
       - 'NAVI_ALEXA_RENDERER_ANNOUNCE=${NAVI_ALEXA_RENDERER_ANNOUNCE:-explicit}'
       - 'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL=${NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL:-60}'
-      - 'NAVI_URL=${NAVI_URL}'
-      - 'NAVI_USER=${NAVI_USER}'
-      - 'NAVI_PASS=${NAVI_PASS}'
-      - 'NAVI_PORT=${NAVI_PORT}'
-      - 'NAVI_API_PATH=${NAVI_API_PATH}'
-      - 'NAVI_API_VER=${NAVI_API_VER}'
+      - 'NAVI_ALEXA_RENDERER_SSDP_MX=${NAVI_ALEXA_RENDERER_SSDP_MX:-0}'
+      - 'NAVI_PORT=${NAVI_PORT:-443}'
+      - 'NAVI_API_PATH=${NAVI_API_PATH:-/rest}'
+      - 'NAVI_API_VER=${NAVI_API_VER:-1.16.1}'
+      - 'NAVI_API_TIMEOUT=${NAVI_API_TIMEOUT:-10}'
+      - 'NAVI_DEBUG=${NAVI_DEBUG:-0}'
       - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
-      - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}'
-      # Amazon OAuth (Login with Amazon)
+      - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}'
+      # Amazon OAuth (Login with Amazon) - required when the OAuth flow is used
       - 'NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID}'
       - 'NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET}'
       - 'NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI}'
-      - 'NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json'
+      - 'NAVI_AMAZON_TOKEN_FILE=${NAVI_AMAZON_TOKEN_FILE:-/var/lib/castnavidrome/amazon_oauth_token.json}'
+      - 'NAVI_AMAZON_SCOPES=${NAVI_AMAZON_SCOPES:-profile}'
+      - 'NAVI_AMAZON_SESSION_FILE=${NAVI_AMAZON_SESSION_FILE:-/var/lib/castnavidrome/amazon_session.json}'
+      - 'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=${NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE}'
     volumes:
       - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
       - './state:/var/lib/castnavidrome'
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1', 49443)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   tailscale:
     image: tailscale/tailscale:latest

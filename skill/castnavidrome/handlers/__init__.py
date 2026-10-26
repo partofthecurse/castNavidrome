@@ -61,6 +61,6 @@ def register_handlers(
     sb.add_request_handler(system.SkillEventHandler())
     sb.add_request_handler(system.HelpHandler())
 
-    # Register interceptors
-    sb.add_request_interceptor(interceptors.LoggingRequestInterceptor())
-    sb.add_response_interceptor(interceptors.LoggingResponseInterceptor())
+    # Register interceptors (using current SkillBuilder API)
+    sb.add_global_request_interceptor(interceptors.LoggingRequestInterceptor())
+    sb.add_global_response_interceptor(interceptors.LoggingResponseInterceptor())

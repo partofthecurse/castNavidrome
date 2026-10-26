@@ -33,7 +33,7 @@ class AuthorizationUrlTests(unittest.TestCase):
         self.assertIn('client_id=client-id', url)
         self.assertIn('response_type=code', url)
         self.assertIn('redirect_uri=https%3A%2F%2Fexample.test%2Fcallback', url)
-        self.assertIn('scope=alexa%3A%3Adevices%3Aall', url)
+        self.assertIn('scope=profile', url)
         self.assertIn(f'state={state}', url)
         self.assertEqual(len(state), 43)  # token_urlsafe(32) -> 43 chars
 

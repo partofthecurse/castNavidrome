@@ -81,33 +81,52 @@ logger.debug('Getting configuration from the environment...')
 CONFIG_VALIDATION_ERRORS = []
 CONFIG_VALIDATION_WARNINGS = []
 
-# Required sensitive configuration variables that must be set
+# Required configuration variables that must be set.  They are read from the
+# environment or from Docker secrets and are never optional.  When one of
+# them is missing the service refuses to start with a clear error message so
+# that the operator is pointed at the missing value.
 REQUIRED_SENSITIVE_VARS = {
     'NAVI_SKILL_ID': 'Alexa Skill ID from the Alexa Developer Console',
+    'NAVI_URL': 'URL of the Navidrome (Subsonic) media server',
+    'NAVI_BASE_URL': 'Public https URL of the skill, used for cover art links',
+    'NAVI_USER': 'Navidrome user name',
     'NAVI_PASS': 'Navidrome admin password',
     'NAVI_ALEXA_API_KEY': 'Alexa Remote API key',
-    'NAVI_AMAZON_CLIENT_ID': 'Amazon Login with Amazon Client ID',
-    'NAVI_AMAZON_CLIENT_SECRET': 'Amazon Login with Amazon Client Secret',
-    'NAVI_AMAZON_REDIRECT_URI': 'Amazon Login with Amazon Redirect URI',
+    'NAVI_ALEXA_SKILL_NAME': 'Invocation name of the Alexa skill',
     'TS_AUTHKEY': 'Tailscale auth key for service authentication',
 }
 
-# Optional configuration variables with sensible defaults
+# Variables whose values should be masked in logs.  Only the required
+# sensitive variables are masked, so that an operator never sees a password,
+# API key or auth key in the log output.
+SENSITIVE_CONFIG_VARS = {
+    'NAVI_PASS',
+    'NAVI_ALEXA_API_KEY',
+    'NAVI_AMAZON_CLIENT_ID',
+    'NAVI_AMAZON_CLIENT_SECRET',
+    'NAVI_AMAZON_REDIRECT_URI',
+    'TS_AUTHKEY',
+}
+
+# Optional configuration variables with sensible defaults.  When they are not
+# set in the environment the default value is used, so that the service works
+# out of the box.  When they are set (for example via docker-compose.yaml or
+# a Docker secret) the set value takes precedence over the default.
 OPTIONAL_CONFIG_VARS = {
     # Navidrome connection
-    'NAVI_URL': '',
-    'NAVI_BASE_URL': '',
     'NAVI_PORT': '443',
     'NAVI_API_PATH': '/rest',
     'NAVI_API_VER': '1.16.1',
-    'NAVI_USER': 'admin',
-    'NAVI_SONG_COUNT': '50',
-    'NAVI_DEBUG': 'false',
-    
-    # Alexa renderer
+    'NAVI_API_TIMEOUT': '10',
+    'NAVI_DEBUG': '0',
+    'NAVI_LOG_LEVEL': 'INFO',
+
+    # Alexa skill
     'NAVI_ALEXA_DOMAIN': 'amazon.com',
     'NAVI_ALEXA_LOCALE': 'en-US',
-    'NAVI_ALEXA_SKILL_NAME': 'castnavidrome',
+    'NAVI_ALEXA_COOKIE_FILE': '/run/secrets/alexa.cookies',
+
+    # Alexa renderer
     'NAVI_ALEXA_RENDERER_LOG_LEVEL': 'INFO',
     'NAVI_ALEXA_RENDERER_ENABLED': 'true',
     'NAVI_ALEXA_RENDERER_STATE_FILE': '/var/lib/castnavidrome/renderer-devices.json',
@@ -125,15 +144,18 @@ OPTIONAL_CONFIG_VARS = {
     'NAVI_ALEXA_RENDERER_ANNOUNCE': 'explicit',
     'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL': '60',
     'NAVI_ALEXA_RENDERER_SSDP_MX': '0',
-    
-    # Amazon OAuth
-    'NAVI_AMAZON_TOKEN_FILE': '/var/lib/castnavidrome/amazon_oauth_token.json',
-    'NAVI_AMAZON_SCOPES': '',
-    'NAVI_AMAZON_SESSION_FILE': '/var/lib/castnavidrome/amazon_session.json',
+
+    # Amazon OAuth (Login with Amazon).  These are only required when the OAuth
+    # flow is enabled, i.e. when NAVI_AMAZON_CLIENT_ID is set.  When OAuth is
+    # disabled the Alexa Remote API is used with a static cookie file instead.
     'NAVI_AMAZON_CLIENT_ID': '',
     'NAVI_AMAZON_CLIENT_SECRET': '',
     'NAVI_AMAZON_REDIRECT_URI': '',
-    
+    'NAVI_AMAZON_TOKEN_FILE': '/var/lib/castnavidrome/amazon_oauth_token.json',
+    'NAVI_AMAZON_SCOPES': 'profile',
+    'NAVI_AMAZON_SESSION_FILE': '/var/lib/castnavidrome/amazon_session.json',
+    'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE': '',
+
     # Tailscale
     'TS_STATE_DIR': '/var/lib/tailscale',
     'TS_SERVE_CONFIG': '/config/serve.json',
@@ -150,6 +172,9 @@ def validate_sensitive_config():
         value = os.getenv(var_name)
         if not value:
             errors.append(f"Required sensitive configuration variable '{var_name}' is not set. {description}")
+        else:
+            # Log presence without exposing the value
+            logger.debug(f"Required sensitive configuration variable '{var_name}' is set")
     
     return errors, warnings
 
@@ -177,19 +202,39 @@ def load_configuration():
     all_errors = CONFIG_VALIDATION_ERRORS + errors
     all_warnings = CONFIG_VALIDATION_WARNINGS + warnings
     
-    # Log all configuration for visibility
+    # Log all configuration for visibility with proper masking
     logger.info("=== Configuration Summary ===")
-    logger.info(f"Skill ID: {config.get('NAVI_SKILL_ID', 'NOT SET')}")
-    logger.info(f"Navidrome URL: {config.get('NAVI_URL', '')}")
-    logger.info(f"Navidrome User: {config.get('NAVI_USER', '')}")
-    logger.info(f"Navidrome Port: {config.get('NAVI_PORT', '')}")
-    logger.info(f"Navidrome API Path: {config.get('NAVI_API_PATH', '')}")
-    logger.info(f"Navidrome API Version: {config.get('NAVI_API_VER', '')}")
-    logger.info(f"Alexa Domain: {config.get('NAVI_ALEXA_DOMAIN', '')}")
-    logger.info(f"Alexa Locale: {config.get('NAVI_ALEXA_LOCALE', '')}")
-    logger.info(f"Alexa Skill Name: {config.get('NAVI_ALEXA_SKILL_NAME', '')}")
-    logger.info(f"Alexa Renderer Enabled: {config.get('NAVI_ALEXA_RENDERER_ENABLED', '')}")
-    logger.info(f"Tailscale Auth Key: {'SET' if config.get('TS_AUTHKEY') else 'NOT SET'}")
+    
+    # Log required sensitive variables with masking
+    for var_name, description in REQUIRED_SENSITIVE_VARS.items():
+        value = os.getenv(var_name)
+        if value:
+            logger.info(f"{var_name}: SET (default: N/A)")
+        else:
+            logger.error(f"{var_name}: NOT SET - {description}")
+    
+    # Log optional variables with default/user-set indication
+    for var_name, default_value in OPTIONAL_CONFIG_VARS.items():
+        value = config.get(var_name, '')
+        # Skip variables already logged as required
+        if var_name in REQUIRED_SENSITIVE_VARS:
+            continue
+        
+        # Determine if this is a default or custom value
+        env_value = os.getenv(var_name)
+        is_user_set = env_value is not None and env_value != default_value
+        
+        # Mask sensitive values
+        if var_name in SENSITIVE_CONFIG_VARS:
+            display_value = "***" if value else "NOT SET"
+        else:
+            display_value = value if value else "NOT SET"
+        
+        if is_user_set:
+            logger.info(f"{var_name}: {display_value} (user-set, default: {default_value if default_value else 'N/A'})")
+        else:
+            logger.info(f"{var_name}: {display_value} (default: {default_value if default_value else 'N/A'})")
+    
     logger.info("=== End Configuration Summary ===")
     
     # Report warnings
@@ -213,7 +258,7 @@ navidrome_config = load_configuration()
 # if this is not set the web service will respond to any skill.
 sb.skill_id = os.getenv('NAVI_SKILL_ID')
 if sb.skill_id:
-    logger.info(f'Skill ID set to: {sb.skill_id}')
+    logger.info('Skill ID set')
 else:
     logger.warning('No Alexa skill ID configured; the web service will respond to any skill.')
 
@@ -270,7 +315,7 @@ if 'NAVI_DEBUG' in os.environ:
         # Invalid value provided - set to WARNING
         navidrome_log_level = 0
         logger.setLevel(logging.WARNING)
-        logger.warning('Log level set to WARNING')
+    logger.warning('Log level set to WARNING')
 
 # The play queues are created by the state module, one for every Alexa device
 # that sends a request.  They are shareable, so that they can be updated by
@@ -279,6 +324,8 @@ if 'NAVI_DEBUG' in os.environ:
 logger.debug('MediaQueue objects are created on demand...')
 
 # Connect to Navidrome
+if not navidrome_url:
+    raise ValueError("NAVI_URL is not set. Please configure the Navidrome URL in environment variables.")
 connection = api.SubsonicConnection(navidrome_url,
                                     navidrome_user,
                                     navidrome_passwd,
@@ -292,6 +339,35 @@ try:
 
 except:
     raise RuntimeError('Could not connect to SubSonic API!')
+
+# The resolver of the free text search, it caches the artists and the
+# genres of the collection
+search_resolver = SearchResolver(connection, min_song_count)
+
+# The names of the play lists of the media server, they can be grouped and
+# they are spoken in a different way than they are stored
+playlist_names = build_playlist_names()
+logger.debug('The playlist names are configured with the pattern %s', playlist_names.pattern.pattern)
+
+
+def translate(handler_input: HandlerInput, key: str, **kwargs) -> str:
+    """Get a message of the skill in the language of the request
+
+    The text is sanitised for the SSML standard, so that the characters
+    that are reserved in it do not break the speech output.  The
+    conjunction that replaces them is the one of the language of the
+    request.
+
+    :param handler_input: The Amazon Alexa HandlerInput object
+    :param str key: The key of the message
+    :param kwargs: The values of the placeholders of the message
+    :return: The message in the language of the request
+    :rtype: str
+    """
+
+    translator = get_translator(handler_input)
+
+    return sanitise_speech_output(translator.t(key, **kwargs), translator.locale)
 
 # Register the modular Alexa handlers (Launch, Help, Audio check, Skill events,
 # and interceptors).  Complex playback handlers remain in app.py for now and
@@ -307,15 +383,6 @@ register_handlers(
     skill_display_name=SKILL_DISPLAY_NAME,
     help_overview_key=HELP_OVERVIEW_KEY,
 )
-
-# The resolver of the free text search, it caches the artists and the
-# genres of the collection
-search_resolver = SearchResolver(connection, min_song_count)
-
-# The names of the play lists of the media server, they can be grouped and
-# they are spoken in a different way than they are stored
-playlist_names = build_playlist_names()
-logger.debug('The playlist names are configured with the pattern %s', playlist_names.pattern.pattern)
 
 # The number of play lists that are read out at once
 PLAYLIST_PAGE_SIZE = 10
@@ -2003,6 +2070,14 @@ install_certificate_chain_workaround()
 
 sa = SkillAdapter(skill=sb.create(), skill_id='test', app=app)
 sa.register(app=app, route='/')
+
+# Health check endpoint for the Docker HEALTHCHECK and the docker-compose
+# healthcheck.  The Alexa skill dispatch is registered for POST only, so a
+# plain GET on "/" would otherwise answer with 405.
+@app.route('/', methods=['GET'])
+def health_check():
+    return 'castNavidrome is running', 200
+
 #alexa bridge endpoints
 def authorize_alexa_api():
     expected_key = os.getenv('NAVI_ALEXA_API_KEY')
