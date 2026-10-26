@@ -326,7 +326,7 @@ Configurable renderer options (all optional, in `.env`):
 |---|---|---|
 | `NAVI_ALEXA_RENDERER_PORT` | `49443` | Renderer port |
 | `NAVI_ALEXA_RENDERER_REFRESH_SECONDS` | `300` | Device refresh interval |
-| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | `false` | Disable periodic device refresh (only use for testing) |
+| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | `true` | Disable periodic device refresh (default: only once at container start) |
 | `NAVI_ALEXA_RENDERER_LOG_LEVEL` | `INFO` | Log level |
 
 ---

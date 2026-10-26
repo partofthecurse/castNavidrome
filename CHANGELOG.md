@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `.gitignore` — excludes `.env`, `.secrets/`, `state/`, `ts/`, Python and Sphinx build artifacts.
 - `CHANGELOG.md` — this file, with semantic versioning starting at `0.10.0`.
 - `skill/castnavidrome/__init__.py` — package version (`__version__ = "0.10.0"`).
-- Dockerfile builds a `castnavidrome` image (alpine:3.22.1); `docker compose` brings up the skill and an
+- Dockerfile builds a `castnavidrome` image (alpine:3.19); `docker compose` brings up the skill and an
   optional UPnP MediaRenderer container.
 
 ### Changed

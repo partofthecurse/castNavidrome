@@ -280,7 +280,7 @@ The invocation name is the same in every locale and is set with `NAVI_ALEXA_SKIL
 docker build -t castnavidrome:local .
 ```
 
-Multi-architecture images can be built with `docker buildx` when required (the Dockerfile targets `alpine:3.22.1`). The image is not published automatically; build and push it to your own registry before releasing.
+Multi-architecture images can be built with `docker buildx` when required (the Dockerfile targets `alpine:3.19`). The image is not published automatically; build and push it to your own registry before releasing.
 
 ## Configuration
 
@@ -315,6 +315,8 @@ The service reads its configuration from environment variables.
 | `NAVI_AMAZON_SESSION_FILE` | Persisted Amazon session cookies | `/var/lib/castnavidrome/amazon_session.json` |
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio stream URLs | — |
 | `NAVI_PLAYLIST_NAME_PATTERN` / `_SPOKEN_FORMAT` / `_QUALIFIED_FORMAT` | Playlist name grouping and spoken format | — |
+| `NAVI_LOG_LEVEL` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` |
+| `NAVI_API_TIMEOUT` | Timeout in seconds for Navidrome API requests | `10` |
 
 ### Media renderer (`castnavidrome-renderer`)
 
@@ -328,6 +330,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Prefix for renderer names | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Allowed device types (comma separated) | `ECHO,FIRE_TV` |
 | `NAVI_ALEXA_RENDERER_NAME_REGEX` | Regex device names must match | `^Echo` |
+| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device refresh (default: only once at container start) | `true` |
 | `NAVI_ALEXA_RENDERER_ONLY_ONLINE` | Expose only online devices | `no` |
 | `NAVI_ALEXA_RENDERER_LOG_LEVEL` | Log level | `INFO` |
 
