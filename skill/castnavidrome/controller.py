@@ -9,6 +9,7 @@ Alexa app.
 import logging
 import os
 from typing import Union
+from urllib.parse import urlparse
 
 from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_model import Response
@@ -27,6 +28,30 @@ logger = logging.getLogger(__name__)
 
 NAVI_BASE_URL = os.getenv('NAVI_BASE_URL', '')
 """The public URL of the skill, it is used for the cover art of the cards"""
+
+
+def _validate_base_url(url: str) -> str:
+    """Validate the public base URL used for cover art links.
+
+    The URL must be an absolute https URL with a host, so that cover art
+    proxied by the skill never points at an unintended target.
+    """
+    if not url:
+        logger.warning('NAVI_BASE_URL is not set, cover art cards will use the default logo.')
+        return ''
+
+    parsed = urlparse(url)
+    if parsed.scheme != 'https' or not parsed.netloc:
+        logger.warning(
+            'NAVI_BASE_URL "%s" is not a valid https URL, cover art cards will use the default logo.',
+            url,
+        )
+        return ''
+
+    return url.rstrip('/')
+
+
+NAVI_BASE_URL = _validate_base_url(NAVI_BASE_URL)
 
 #
 # Functions

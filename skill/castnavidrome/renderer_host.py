@@ -355,9 +355,67 @@ class AlexaRendererController:
     def previous(self, renderer: MediaRenderer) -> None:
         self._send(renderer, build_control_text('previous', self.skill_name, locale=self.locale))
 
-    def set_volume(self, renderer: MediaRenderer, volume: int = 0) -> None:
-        level = max(0, min(10, round(int(volume) / 10)))
-        self._send(renderer, build_control_text('set_volume', self.skill_name, volume=level, locale=self.locale))
+    def set_volume(self, renderer: MediaRenderer, volume: int = 0, adjust: str = 'absolute', use_current: bool = True) -> None:
+        """Set the volume of the Alexa device
+        
+        :param renderer: The media renderer
+        :param volume: The target volume level (0-10 for absolute, ignored for relative adjustments)
+        :param adjust: 'absolute' to set exact volume, 'increase' to increase relative, 'decrease' to decrease relative
+        :param use_current: Whether to use the current Echo volume as the basis for changes
+        """
+        if adjust == 'absolute':
+            level = max(0, min(10, int(volume)))
+            command = 'set_volume'
+            cmd_volume = level
+        else:
+            # For relative adjustments, query current volume first
+            try:
+                current_volume = self._client().get_device_volume(self._device(renderer))
+                if current_volume is None:
+                    if use_current:
+                        raise RendererCommandError('Could not read the current volume.')
+                    else:
+                        # Fallback to simple increase/decrease without current volume
+                        if adjust == 'increase':
+                            level = 1
+                        elif adjust == 'decrease':
+                            level = -1
+                        else:
+                            raise ValueError(f'Invalid adjust mode: {adjust}')
+                        command = 'set_volume'
+                        cmd_volume = level
+                        self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
+                        return
+                
+                current_volume = max(0, min(10, current_volume))
+                
+                if adjust == 'increase':
+                    target_volume = min(10, current_volume + 1)
+                elif adjust == 'decrease':
+                    target_volume = max(0, current_volume - 1)
+                else:
+                    raise ValueError(f'Invalid adjust mode: {adjust}')
+                
+                level = target_volume
+                command = 'set_volume'
+                cmd_volume = level
+            except Exception as error:
+                if use_current:
+                    raise RendererCommandError(f'Failed to adjust volume: {error}') from error
+                else:
+                    # Fallback to simple increase/decrease without current volume
+                    if adjust == 'increase':
+                        level = 1
+                    elif adjust == 'decrease':
+                        level = -1
+                    else:
+                        raise ValueError(f'Invalid adjust mode: {adjust}')
+                    command = 'set_volume'
+                    cmd_volume = level
+                    self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
+                    return
+        
+        self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
 
     def get_volume(self, renderer: MediaRenderer) -> int:
         """Read the current volume of the Alexa device
@@ -490,6 +548,7 @@ class RendererHost:
                 self.env.get('NAVI_PORT', '443'),
                 self.env.get('NAVI_API_PATH', '/rest'),
                 self.env.get('NAVI_API_VER', '1.16.1'),
+                timeout=int(self.env.get('NAVI_API_TIMEOUT', '10')),
             )
         except Exception as error:
             logger.warning('Could not connect to the Navidrome server: %s', error)

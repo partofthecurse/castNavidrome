@@ -1,13 +1,6 @@
-import tempfile
-import threading
-import time
-import unittest
-import urllib.request
-from pathlib import Path
-
 from castnavidrome.alexa_remote import AlexaRemoteError
 from castnavidrome.renderer_host import AlexaRendererController, RendererHost
-from castnavidrome.upnp.renderer import MediaRenderer
+from castnavidrome.upnp.renderer import MediaRenderer, RendererCommandError
 
 
 def make_device(name='Echo Dot', serial='serial-1', device_type='ECHO', customer='customer-1'):
@@ -280,9 +273,85 @@ class ControllerQueueTests(unittest.TestCase):
 
         self.assertEqual([track['title'] for track in queue], ['Some Song'])
 
-    def test_the_now_playing_is_reported_for_the_client(self):
+    def test_the_renderer_remembers_the_client(self):
         self.renderer.set_client('Jellybox/1.4.2 (Android)')
 
-        self.controller.report_now_playing(self.renderer, {'id': '42'})
+        self.assertEqual(self.renderer.client_name, 'Jellybox')
 
-        self.assertEqual(self.subsonic.reported, [('42', 'Jellybox')])
+
+class FakeAlexaClientWithVolume(FakeAlexaClient):
+    """A stand in for the client that sends the commands to the Alexa device with volume support."""
+
+    def __init__(self):
+        super().__init__()
+        self.volumes = {}
+
+    def get_device_volume(self, device):
+        return self.volumes.get(device.get('serialNumber'), 7)
+
+    def send_text_command(self, device, text, locale='en-US'):
+        self.sent.append(text)
+
+
+def make_controller_with_volume(announce='explicit'):
+    controller = AlexaRendererController(
+        cookie_file='/does/not/exist',
+        skill_name='zero mukke',
+        locale='de-DE',
+        announce=announce,
+    )
+    client = FakeAlexaClientWithVolume()
+    controller._client = lambda: client
+    renderer = MediaRenderer('uuid:1234', 'Echo Dot', make_device(), controller)
+
+    return controller, client, renderer
+
+
+class ControllerVolumeTests(unittest.TestCase):
+    def setUp(self):
+        self.controller = AlexaRendererController(
+            cookie_file='/does/not/exist',
+            skill_name='zero mukke',
+            locale='de-DE',
+        )
+        self.client = FakeAlexaClient()
+        self.controller._client = lambda: self.client
+        self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', make_device(), self.controller)
+
+    def test_absolute_volume(self):
+        controller, client, renderer = make_controller_with_volume()
+        client.volumes['serial-1'] = 5
+
+        controller.set_volume(renderer, volume=8, adjust='absolute')
+
+        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 8'])
+
+    def test_increase_volume_with_current(self):
+        controller, client, renderer = make_controller_with_volume()
+        client.volumes['serial-1'] = 5
+
+        controller.set_volume(renderer, volume=0, adjust='increase', use_current=True)
+
+        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 6'])
+
+    def test_decrease_volume_with_current(self):
+        controller, client, renderer = make_controller_with_volume()
+        client.volumes['serial-1'] = 8
+
+        controller.set_volume(renderer, volume=0, adjust='decrease', use_current=True)
+
+        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 7'])
+
+    def test_increase_volume_without_current_fallback(self):
+        controller, client, renderer = make_controller_with_volume()
+
+        controller.set_volume(renderer, volume=0, adjust='increase', use_current=False)
+
+        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 1'])
+
+    def test_decrease_volume_without_current_fallback(self):
+        controller, client, renderer = make_controller_with_volume()
+
+        controller.set_volume(renderer, volume=0, adjust='decrease', use_current=False)
+
+        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf -1'])

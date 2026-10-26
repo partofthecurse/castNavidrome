@@ -8,7 +8,6 @@ fill it while the web service answers requests.
 """
 
 from collections import deque
-from copy import deepcopy
 import logging
 import random
 
@@ -371,7 +370,12 @@ class MediaQueue:
         the correct.  In practice this will have already
         queued and there for missing from the current buffer
 
+        The buffer is rebuilt from the queue without a deep copy
+        because Track objects are treated as immutable after creation,
+        so a shallow copy is sufficient and avoids the cost of
+        deepcopy over the multiprocessing proxy boundary.
+
         :return: None
         """
 
-        self.buffer = deepcopy(self.queue)
+        self.buffer = deque(self.queue)

@@ -55,7 +55,8 @@ class SubsonicConnection:
         'wiedergabelisten', 'song', 'songs', 'lied', 'lieder', 'musik',
     })
 
-    def __init__(self, server_url: str, user: str, passwd: str, port: int, api_location: str, api_version: str) -> None:
+    def __init__(self, server_url: str, user: str, passwd: str, port: int, api_location: str, api_version: str,
+                 timeout: int = 10) -> None:
         """
         :param str server_url: The URL of the Subsonic API compatible media server
         :param str user: Username to authenticate against the API
@@ -63,6 +64,7 @@ class SubsonicConnection:
         :param int port: Port the Subsonic compatible server is listening on
         :param str api_location: Path to the API, this is appended to server_url
         :param str api_version: The version of the Subsonic API that is in use
+        :param int timeout: Timeout in seconds for API requests to the media server
         :return: None
         """
 
@@ -74,6 +76,7 @@ class SubsonicConnection:
         self.port = port
         self.api_location = api_location
         self.api_version = api_version
+        self.timeout = timeout
 
         self.conn = libsonic.Connection(self.server_url,
                                         self.user,

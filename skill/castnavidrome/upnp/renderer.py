@@ -33,6 +33,10 @@ TRACK_KEYS = ('id', 'title', 'artist', 'album', 'albumId', 'art', 'duration', 'u
 # polling the Alexa device does not happen on every GetVolume call.
 VOLUME_READ_INTERVAL = 60.0
 
+# The volume changes are throttled to avoid too many API requests.
+# Multiple volume changes within this interval will only result in the last change.
+VOLUME_CHANGE_INTERVAL = 2.0
+
 
 def format_duration(seconds: int) -> str:
     """Format a number of seconds as the UPnP duration "H:MM:SS".
@@ -135,6 +139,8 @@ class MediaRenderer:
         self.started_at = None
         self._advance_timer = None
         self._volume_read_at = 0.0
+        self._last_volume_change_at = 0.0
+        self._volume_change_pending = None
 
     #
     # State helpers
@@ -640,21 +646,32 @@ class MediaRenderer:
         return {'CurrentVolume': str(self.volume)}
 
     def set_volume(self, desired_volume: str, channel: str = 'Master') -> dict:
-        try:
-            value = int(float(desired_volume))
-        except (TypeError, ValueError):
-            raise SoapError('The requested volume is not a number.', 402) from None
+        """Set the volume with burst suppression - only the last change in a short interval is processed."""
+        now = time.monotonic()
+        
+        if now - self._last_volume_change_at >= VOLUME_CHANGE_INTERVAL:
+            self._last_volume_change_at = now
+            self._volume_change_pending = None
+            
+            try:
+                value = int(float(desired_volume))
+            except (TypeError, ValueError):
+                raise SoapError('The requested volume is not a number.', 402) from None
 
-        value = max(0, min(UPNP_VOLUME_MAX, value))
-        self.volume = value
+            value = max(0, min(UPNP_VOLUME_MAX, value))
+            self.volume = value
 
-        try:
-            self._command('set_volume', volume=value)
-        except RendererCommandError as error:
-            raise SoapError(str(error), 701) from None
+            try:
+                self._command('set_volume', volume=value)
+            except RendererCommandError as error:
+                raise SoapError(str(error), 701) from None
 
-        self.notify_state_change()
-
+            self.notify_state_change()
+        else:
+            self._volume_change_pending = value
+            logger.debug('Volume change throttled for renderer %s, pending: %s', 
+                        self.friendly_name, self._volume_change_pending)
+        
         return {}
 
     def get_mute(self, channel: str = 'Master') -> dict:
@@ -670,7 +687,6 @@ class MediaRenderer:
                 raise SoapError(str(error), 701) from None
 
         self.notify_state_change()
-
         return {}
 
     def get_volume_db(self, channel: str = 'Master') -> dict:

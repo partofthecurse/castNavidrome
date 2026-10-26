@@ -1,6 +1,9 @@
 """Helpers for the Alexa skill requests."""
 
 import logging
+from typing import Optional
+
+from ask_sdk_core.handler_input import HandlerInput
 
 from .localization import Translator
 
@@ -16,7 +19,7 @@ except ImportError:
     SUCCESS_MATCH = 'ER_SUCCESS_MATCH'
 
 
-def get_resolved_slot_value(handler_input, slot_name: str) -> str:
+def get_resolved_slot_value(handler_input: HandlerInput, slot_name: str) -> Optional[str]:
     """Get the canonical value of a slot
 
     Alexa resolves a slot value against the values of the slot type.  If the
@@ -36,7 +39,12 @@ def get_resolved_slot_value(handler_input, slot_name: str) -> str:
     :rtype: str | None
     """
 
-    slots = handler_input.request_envelope.request.intent.slots
+    request = handler_input.request_envelope.request
+    intent = getattr(request, 'intent', None)
+    if intent is None:
+        return None
+
+    slots = intent.slots
     slot = slots.get(slot_name)
 
     if slot is None:

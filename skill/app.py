@@ -50,6 +50,7 @@ from castnavidrome.localization import (
 from castnavidrome.exception_handlers import GeneralExceptionHandler, SystemExceptionHandler
 from castnavidrome.cover_art import fetch_cover_art
 from castnavidrome.ask_sdk_compat import install_certificate_chain_workaround
+from castnavidrome.handlers import register_handlers
 
 # Create the Flask web service
 app = Flask(__name__)
@@ -58,17 +59,16 @@ app = Flask(__name__)
 sb = SkillBuilder()
 
 # Set up logging to stdout
-logger = logging.getLogger()
-level = logging.getLevelName('DEBUG')
-logger.setLevel(level)
+log_level_name = os.getenv('NAVI_LOG_LEVEL', 'INFO').upper()
+log_level = getattr(logging, log_level_name, logging.INFO)
 
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+)
 
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(level)
-handler.setFormatter(log_formatter)
-
-logger.addHandler(handler)
+logger = logging.getLogger(__name__)
 
 #
 # Get service configuration
@@ -76,6 +76,138 @@ logger.addHandler(handler)
 
 logger.info('castNavidrome 0.10!')
 logger.debug('Getting configuration from the environment...')
+
+# Configuration validation
+CONFIG_VALIDATION_ERRORS = []
+CONFIG_VALIDATION_WARNINGS = []
+
+# Required sensitive configuration variables that must be set
+REQUIRED_SENSITIVE_VARS = {
+    'NAVI_SKILL_ID': 'Alexa Skill ID from the Alexa Developer Console',
+    'NAVI_PASS': 'Navidrome admin password',
+    'NAVI_ALEXA_API_KEY': 'Alexa Remote API key',
+    'NAVI_AMAZON_CLIENT_ID': 'Amazon Login with Amazon Client ID',
+    'NAVI_AMAZON_CLIENT_SECRET': 'Amazon Login with Amazon Client Secret',
+    'NAVI_AMAZON_REDIRECT_URI': 'Amazon Login with Amazon Redirect URI',
+    'TS_AUTHKEY': 'Tailscale auth key for service authentication',
+}
+
+# Optional configuration variables with sensible defaults
+OPTIONAL_CONFIG_VARS = {
+    # Navidrome connection
+    'NAVI_URL': '',
+    'NAVI_BASE_URL': '',
+    'NAVI_PORT': '443',
+    'NAVI_API_PATH': '/rest',
+    'NAVI_API_VER': '1.16.1',
+    'NAVI_USER': 'admin',
+    'NAVI_SONG_COUNT': '50',
+    'NAVI_DEBUG': 'false',
+    
+    # Alexa renderer
+    'NAVI_ALEXA_DOMAIN': 'amazon.com',
+    'NAVI_ALEXA_LOCALE': 'en-US',
+    'NAVI_ALEXA_SKILL_NAME': 'castnavidrome',
+    'NAVI_ALEXA_RENDERER_LOG_LEVEL': 'INFO',
+    'NAVI_ALEXA_RENDERER_ENABLED': 'true',
+    'NAVI_ALEXA_RENDERER_STATE_FILE': '/var/lib/castnavidrome/renderer-devices.json',
+    'NAVI_ALEXA_RENDERER_ADVERTISE_HOST': '',
+    'NAVI_ALEXA_RENDERER_PORT': '49443',
+    'NAVI_ALEXA_RENDERER_REFRESH_SECONDS': '300',
+    'NAVI_ALEXA_RENDERER_MIN_REFRESH_SECONDS': '60',
+    'NAVI_ALEXA_RENDERER_NAME_PREFIX': '',
+    'NAVI_ALEXA_RENDERER_DEVICE_TYPES': '',
+    'NAVI_ALEXA_RENDERER_EXCLUDED_DEVICE_TYPES': 'TABLET,E_READER,EBOOK_READER,KINDLE,ECHO_READER,FIRE_READER',
+    'NAVI_ALEXA_RENDERER_NAME_INCLUDE': '',
+    'NAVI_ALEXA_RENDERER_NAME_EXCLUDE': '',
+    'NAVI_ALEXA_RENDERER_NAME_REGEX': '',
+    'NAVI_ALEXA_RENDERER_ONLY_ONLINE': 'false',
+    'NAVI_ALEXA_RENDERER_ANNOUNCE': 'explicit',
+    'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL': '60',
+    'NAVI_ALEXA_RENDERER_SSDP_MX': '0',
+    
+    # Amazon OAuth
+    'NAVI_AMAZON_TOKEN_FILE': '/var/lib/castnavidrome/amazon_oauth_token.json',
+    'NAVI_AMAZON_SCOPES': '',
+    'NAVI_AMAZON_SESSION_FILE': '/var/lib/castnavidrome/amazon_session.json',
+    'NAVI_AMAZON_CLIENT_ID': '',
+    'NAVI_AMAZON_CLIENT_SECRET': '',
+    'NAVI_AMAZON_REDIRECT_URI': '',
+    
+    # Tailscale
+    'TS_STATE_DIR': '/var/lib/tailscale',
+    'TS_SERVE_CONFIG': '/config/serve.json',
+    'TS_USERSPACE': 'false',
+}
+
+# Validate required sensitive variables
+def validate_sensitive_config():
+    """Validate required sensitive configuration variables are set."""
+    errors = []
+    warnings = []
+    
+    for var_name, description in REQUIRED_SENSITIVE_VARS.items():
+        value = os.getenv(var_name)
+        if not value:
+            errors.append(f"Required sensitive configuration variable '{var_name}' is not set. {description}")
+    
+    return errors, warnings
+
+# Load configuration with fallback values
+def load_configuration():
+    """Load configuration with fallback values and validation."""
+    
+    # First validate sensitive variables
+    errors, warnings = validate_sensitive_config()
+    
+    # Load optional configuration with defaults
+    config = {}
+    
+    for var_name, default_value in OPTIONAL_CONFIG_VARS.items():
+        value = os.getenv(var_name, default_value)
+        config[var_name] = value
+        
+        # Log non-default values for visibility
+        if value != default_value:
+            logger.debug(f"Configuration variable '{var_name}' set to custom value: '{value}'")
+        else:
+            logger.debug(f"Configuration variable '{var_name}' using default value: '{value}'")
+    
+    # Combine errors and warnings from validation
+    all_errors = CONFIG_VALIDATION_ERRORS + errors
+    all_warnings = CONFIG_VALIDATION_WARNINGS + warnings
+    
+    # Log all configuration for visibility
+    logger.info("=== Configuration Summary ===")
+    logger.info(f"Skill ID: {config.get('NAVI_SKILL_ID', 'NOT SET')}")
+    logger.info(f"Navidrome URL: {config.get('NAVI_URL', '')}")
+    logger.info(f"Navidrome User: {config.get('NAVI_USER', '')}")
+    logger.info(f"Navidrome Port: {config.get('NAVI_PORT', '')}")
+    logger.info(f"Navidrome API Path: {config.get('NAVI_API_PATH', '')}")
+    logger.info(f"Navidrome API Version: {config.get('NAVI_API_VER', '')}")
+    logger.info(f"Alexa Domain: {config.get('NAVI_ALEXA_DOMAIN', '')}")
+    logger.info(f"Alexa Locale: {config.get('NAVI_ALEXA_LOCALE', '')}")
+    logger.info(f"Alexa Skill Name: {config.get('NAVI_ALEXA_SKILL_NAME', '')}")
+    logger.info(f"Alexa Renderer Enabled: {config.get('NAVI_ALEXA_RENDERER_ENABLED', '')}")
+    logger.info(f"Tailscale Auth Key: {'SET' if config.get('TS_AUTHKEY') else 'NOT SET'}")
+    logger.info("=== End Configuration Summary ===")
+    
+    # Report warnings
+    for warning in all_warnings:
+        logger.warning(f"Configuration Warning: {warning}")
+    
+    # Exit if there are errors
+    if all_errors:
+        logger.error("Configuration validation failed with the following errors:")
+        for error in all_errors:
+            logger.error(f"  - {error}")
+        logger.error("Please check your environment variables or docker-compose.yml configuration.")
+        raise ValueError(f"Configuration validation failed: {len(all_errors)} error(s) found")
+    
+    return config
+
+# Load configuration at startup
+navidrome_config = load_configuration()
 
 # Set skill ID, this is available on the Alexa Developer Console. defined in .env file
 # if this is not set the web service will respond to any skill.
@@ -152,13 +284,29 @@ connection = api.SubsonicConnection(navidrome_url,
                                     navidrome_passwd,
                                     navidrome_port,
                                     navidrome_api_location,
-                                    navidrome_api_version)
+                                    navidrome_api_version,
+                                    timeout=int(os.getenv('NAVI_API_TIMEOUT', '10')))
 
 try:
     connection.ping()
 
 except:
     raise RuntimeError('Could not connect to SubSonic API!')
+
+# Register the modular Alexa handlers (Launch, Help, Audio check, Skill events,
+# and interceptors).  Complex playback handlers remain in app.py for now and
+# are registered further below.
+register_handlers(
+    sb,
+    connection=connection,
+    state=state,
+    controller=controller,
+    search_resolver=search_resolver,
+    playlist_names=playlist_names,
+    translate_func=translate,
+    skill_display_name=SKILL_DISPLAY_NAME,
+    help_overview_key=HELP_OVERVIEW_KEY,
+)
 
 # The resolver of the free text search, it caches the artists and the
 # genres of the collection
@@ -1810,10 +1958,6 @@ def is_radio_track(track) -> bool:
 
 
 # Register Intent Handlers
-sb.add_request_handler(LaunchRequestHandler())
-sb.add_request_handler(CheckAudioInterfaceHandler())
-sb.add_request_handler(SkillEventHandler())
-sb.add_request_handler(HelpHandler())
 sb.add_request_handler(castNavidromePlayMusicByArtist())
 sb.add_request_handler(castNavidromePlayAlbumByArtist())
 sb.add_request_handler(castNavidromePlaySongByArtist())
@@ -1851,11 +1995,6 @@ sb.add_request_handler(PlaybackFailedEventHandler())
 # Register Exception Handlers
 sb.add_exception_handler(SystemExceptionHandler())
 sb.add_exception_handler(GeneralExceptionHandler())
-
-if navidrome_log_level >= 2:
-    # Register Interceptors (log all requests)
-    sb.add_global_request_interceptor(LoggingRequestInterceptor())
-    sb.add_global_response_interceptor(LoggingResponseInterceptor())
 
 # Make the verification of the certificate chain of a request robust, the
 # Amazon SDK fails with an internal server error if a certificate of the
