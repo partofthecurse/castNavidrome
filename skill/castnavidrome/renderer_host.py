@@ -33,7 +33,7 @@ DEFAULT_PORT = 49443
 DEFAULT_REFRESH_SECONDS = 300
 DEFAULT_MIN_REFRESH_SECONDS = 10
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
-DEFAULT_DISABLE_REFRESH = 'false'
+DEFAULT_DISABLE_REFRESH = 'true'
 DEFAULT_SSDP_MX = 0.0
 
 # The prefix of the renderer names is optional.  Without it the renderers
@@ -516,8 +516,11 @@ class RendererHost:
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
 
-        # Disable continuous device list updates - only update once at container start
-        self.disable_refresh = True
+        # Disable continuous device list updates - only update once at container start.
+        # Can be re-enabled with NAVI_ALEXA_RENDERER_DISABLE_REFRESH=false.
+        self.disable_refresh = (self.env.get('NAVI_ALEXA_RENDERER_DISABLE_REFRESH',
+                                              DEFAULT_DISABLE_REFRESH).strip().lower()
+                                != 'false')
 
         self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
         self._announce_stop = threading.Event()
@@ -667,8 +670,8 @@ class RendererHost:
             self._last_refresh = time.monotonic()
 
             selected = self.device_filter.filter(devices)
-            logger.info('Found %s Alexa device(s), %s of them are exposed as media renderers.',
-                        len(devices), len(selected))
+            logger.debug('Found %s Alexa device(s), %s of them are exposed as media renderers.',
+                         len(devices), len(selected))
 
             self.sync_renderers(selected)
 
