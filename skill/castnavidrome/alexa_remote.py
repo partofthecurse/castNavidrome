@@ -202,7 +202,7 @@ class AlexaTextCommandClient:
             # Strip any trailing path.
             host = host.split('/', 1)[0]
             self.api_host = host
-            logger.info('Using Alexa API host %s.', host)
+            logger.debug('Using Alexa API host %s.', host)
 
         return data
 
