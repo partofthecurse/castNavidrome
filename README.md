@@ -1,17 +1,17 @@
 # castNavidrome
 
-Alexa skill that bridges Alexa devices to a Subsonic API compatible media server (for example Navidrome), so you can stream your own music collection to your Echo devices.
+castNavidrome turns every Alexa device into its own UPnP/DLNA media renderer, so DLNA clients (Symfonium, Supersonic, …) can cast music to individual Echoes. It also bridges Alexa devices to a Subsonic API compatible media server (for example Navidrome) for voice-controlled playback of your own music collection.
 
 **castNavidrome is a fork of [AskNavidrome](https://github.com/rosskouk/asknavidrome)** (Ross Stewart, MIT License) with local extensions from several community forks plus a built-in UPnP MediaRenderer for every Alexa device. See [Fork of AskNavidrome](#fork-of-asknavidrome) and [CREDITS.md](CREDITS.md).
 
 ## Highlights
 
+- **UPnP/DLNA MediaRenderer:** every selected Alexa device appears as its own renderer in Navidrome, so DLNA clients (Symfonium, Supersonic, …) can send tracks to individual Echoes.
 - Play music by artist, album, song, genre, playlist, decade, or free-text query.
 - Shuffle the play queue, star/unstar songs, show details of the current track.
 - Radio streams and playlist discovery ("play more playlists like this", "find a playlist").
 - Help topics and spoken answers in the language of the Echo device.
 - On Echo Show devices, the cover of the current album is shown during playback.
-- Optional UPnP MediaRenderer: every selected Alexa device appears as its own renderer in Navidrome, so DLNA clients (Symfonium, Supersonic, …) can send tracks to individual Echoes.
 - Optional Amazon OAuth 2.0 / Login with Amazon authentication (recommended, replaces manual cookie copying and TOTP login).
 - Runs directly with Python or in a Docker container (recommended).
 
