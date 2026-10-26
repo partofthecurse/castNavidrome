@@ -352,91 +352,91 @@ Every adopted feature and its origin is listed in [CREDITS.md](CREDITS.md) with 
 
 This is the stable, long-term login method. Amazon's regular sign-in page (`/ap/signin`) no longer works reliably, so castNavidrome uses the official OAuth 2.0 Authorization Code flow instead — the same way Home Assistant Skills do.
 
-#### A. Login with Amazon Security Profile anlegen
+#### A. Create a Login with Amazon Security Profile
 
-1. Öffne die [Login with Amazon Console](https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html) und melde dich mit deinem Amazon-Entwicklerkonto an.
-2. Klicke auf **Create a New Security Profile** (oder wähle ein bestehendes Profil aus).
-3. Trage einen Namen ein (z. B. `castNavidrome`) und eine Beschreibung, dann klicke auf **Save**.
-4. Kopiere die angezeigten Werte:
-   - **Client ID** (beginnt mit `amzn1.application-oa2-client.`)
+1. Open the [Login with Amazon Console](https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html) and sign in with your Amazon developer account.
+2. Click **Create a New Security Profile** (or select an existing profile).
+3. Enter a name (e.g. `castNavidrome`) and a description, then click **Save**.
+4. Copy the displayed values:
+   - **Client ID** (begins with `amzn1.application-oa2-client.`)
    - **Client Secret**
 
-#### B. Redirect URI in der Amazon Developer Console registrieren
+#### B. Register the Redirect URI in the Amazon Developer Console
 
-Damit Amazon den OAuth-Callback akzeptiert, muss die Redirect URI exakt im Security Profile hinterlegt sein:
+For Amazon to accept the OAuth callback, the Redirect URI must be entered exactly in the Security Profile:
 
-1. In der Login with Amazon Console: dein Security Profile öffnen → Reiter **Web Settings**.
-2. Bei **Allowed Return URLs** (oder „Zugelassene Rückgabe-URLs“) folgenden Eintrag hinzufügen:
+1. In the Login with Amazon Console: open your Security Profile → tab **Web Settings**.
+2. Under **Allowed Return URLs** add the following entry:
 
    ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
+   https://your-castnavidrome-domain.test/api/alexa/amazon/callback
    ```
 
-   Ersetze `deine-castnavidrome-domain.test` durch deine öffentliche castNavidrome-Domain (z. B. `https://castnavidrome.drake-aldebaran.ts.net`).
-3. Klicke auf **Save**.
+   Replace `your-castnavidrome-domain.test` with your public castNavidrome domain (e.g. `https://castnavidrome.drake-aldebaran.ts.net`).
+3. Click **Save**.
 
-> **Wichtig:** Die Redirect URI muss exakt mit `NAVI_AMAZON_REDIRECT_URI` in deiner `.env` übereinstimmen. Auch der Trailing Slash (falls vorhanden) muss identisch sein.
+> **Important:** The Redirect URI must exactly match `NAVI_AMAZON_REDIRECT_URI` in your `.env`. Any trailing slash (if present) must be identical as well.
 
-#### C. Umgebungsvariablen in `.env` setzen
+#### C. Set environment variables in `.env`
 
-Trage die Werte aus Schritt A in deine `.env` ein:
+Enter the values from step A into your `.env`:
 
 ```env
-# Amazon OAuth (Login with Amazon) — empfohlene Authentifizierungsmethode
-NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.deine-client-id
-NAVI_AMAZON_CLIENT_SECRET=dein-client-secret
-NAVI_AMAZON_REDIRECT_URI=https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
+# Amazon OAuth (Login with Amazon) — recommended authentication method
+NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.your-client-id
+NAVI_AMAZON_CLIENT_SECRET=your-client-secret
+NAVI_AMAZON_REDIRECT_URI=https://your-castnavidrome-domain.test/api/alexa/amazon/callback
 NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
 ```
 
-Zusätzlich benötigst du `NAVI_ALEXA_DOMAIN`, um festzulegen, welcher Amazon-Marktplatz verwendet wird:
+You also need `NAVI_ALEXA_DOMAIN` to select which Amazon marketplace to use:
 
 ```env
-# Amazon-Marktplatz für den Login (amazon.de, amazon.com, amazon.co.uk, …)
-NAVI_ALEXA_DOMAIN=amazon.de
+# Amazon marketplace for login (amazon.de, amazon.com, amazon.co.uk, …)
+NAVI_ALEXA_DOMAIN=amazon.com
 ```
 
-| Variable | Bedeutung |
-|----------|-----------|
-| `NAVI_AMAZON_CLIENT_ID` | Client ID aus dem LWA Security Profile |
-| `NAVI_AMAZON_CLIENT_SECRET` | Client Secret aus dem LWA Security Profile |
-| `NAVI_AMAZON_REDIRECT_URI` | Muss exakt in der Amazon Developer Console unter „Allowed Return URLs“ eingetragen sein |
-| `NAVI_AMAZON_TOKEN_FILE` | Pfad, in dem die OAuth-Tokens gespeichert werden (Standard: `/var/lib/castnavidrome/amazon_oauth_token.json`) |
-| `NAVI_ALEXA_DOMAIN` | Amazon-Marktplatz, z. B. `amazon.de` für deutsche Konten, `amazon.com` für US-Konten |
+| Variable | Meaning |
+|----------|---------|
+| `NAVI_AMAZON_CLIENT_ID` | Client ID from the LWA Security Profile |
+| `NAVI_AMAZON_CLIENT_SECRET` | Client Secret from the LWA Security Profile |
+| `NAVI_AMAZON_REDIRECT_URI` | Must be entered exactly under "Allowed Return URLs" in the Amazon Developer Console |
+| `NAVI_AMAZON_TOKEN_FILE` | Path where OAuth tokens are stored (default: `/var/lib/castnavidrome/amazon_oauth_token.json`) |
+| `NAVI_ALEXA_DOMAIN` | Amazon marketplace, e.g. `amazon.de` for German accounts, `amazon.com` for US accounts |
 
-#### D. Container starten und OAuth-Token initialisieren
+#### D. Start containers and initialize OAuth tokens
 
-1. Baue und starte die Container:
+1. Build and start the containers:
 
    ```bash
    docker compose up -d --build
    ```
 
-   Die OAuth-Variablen werden automatisch an beide Container (`castnavidrome` und `castnavidrome-renderer`) übergeben.
+   The OAuth variables are automatically passed to both containers (`castnavidrome` and `castnavidrome-renderer`).
 
-2. Rufe im Browser die Login-URL auf:
+2. Open the login URL in your browser:
 
    ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/login
+   https://your-castnavidrome-domain.test/api/alexa/amazon/login
    ```
 
-3. Melde dich mit deinem Amazon-Konto an und erteile castNavidrome die Berechtigung, auf deine Alexa-Geräte zuzugreifen.
-4. Du wirst zurück zu castNavidrome geleitet, und die Zugangstoken werden in `amazon_oauth_token.json` gespeichert.
-5. Ab jetzt funktioniert die Alexa API automatisch; abgelaufene Token werden im Hintergrund neu ausgestellt.
+3. Sign in with your Amazon account and grant castNavidrome permission to access your Alexa devices.
+4. You will be redirected back to castNavidrome, and the access tokens will be stored in `amazon_oauth_token.json`.
+5. From now on the Alexa API works automatically; expired tokens are refreshed in the background.
 
-#### E. Startup-Check
+#### E. Startup check
 
-Beim Start des Haupt-Containers wird geprüft, ob gültige OAuth-Token vorliegen. Wenn nicht, erscheint eine Warnung im Log:
+When the main container starts, it checks whether valid OAuth tokens are present. If not, a warning appears in the log:
 
 ```
 No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login to authenticate before using the Alexa API.
 ```
 
-Das ist nach dem ersten Start normal — erstelle die Token durch den Aufruf von `/api/alexa/amazon/login`.
+This is normal after the first start — create the tokens by calling `/api/alexa/amazon/login`.
 
-#### F. Cookie-Datei als Fallback
+#### F. Cookie file as fallback
 
-Wenn der OAuth-Login nicht funktioniert (z. B. wegen CAPTCHA oder zusätzlicher Verifizierungsschritte), kann weiterhin eine statische Alexa-Cookie-Datei als Fallback verwendet werden (siehe Abschnitt „Alexa Cookie File (manual fallback)“ weiter unten).
+If the OAuth login does not work (e.g. due to CAPTCHA or additional verification steps), a static Alexa cookie file can still be used as a fallback (see section "Alexa Cookie File (manual fallback)" below).
 
 If something goes wrong, you can still fall back to the manual cookie file below.
 
