@@ -646,30 +646,34 @@ class MediaRenderer:
         return {'CurrentVolume': str(self.volume)}
 
     def set_volume(self, desired_volume: str, channel: str = 'Master') -> dict:
-        """Set the volume with burst suppression - only the last change in a short interval is processed."""
+        """Set the volume by direction only - increase or decrease."""
         now = time.monotonic()
+        
+        try:
+            value = int(float(desired_volume))
+        except (TypeError, ValueError):
+            raise SoapError('The requested volume is not a number.', 402) from None
+
+        value = max(0, min(UPNP_VOLUME_MAX, value))
         
         if now - self._last_volume_change_at >= VOLUME_CHANGE_INTERVAL:
             self._last_volume_change_at = now
             self._volume_change_pending = None
-            
-            try:
-                value = int(float(desired_volume))
-            except (TypeError, ValueError):
-                raise SoapError('The requested volume is not a number.', 402) from None
-
-            value = max(0, min(UPNP_VOLUME_MAX, value))
+            old_volume = self.volume
             self.volume = value
 
             try:
-                self._command('set_volume', volume=value)
+                if value > old_volume:
+                    self._command('volume_up')
+                elif value < old_volume:
+                    self._command('volume_down')
             except RendererCommandError as error:
                 raise SoapError(str(error), 701) from None
 
             self.notify_state_change()
         else:
             self._volume_change_pending = value
-            logger.debug('Volume change throttled for renderer %s, pending: %s', 
+            logger.debug('Volume change throttled for renderer %s, pending: %s',
                         self.friendly_name, self._volume_change_pending)
         
         return {}

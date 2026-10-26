@@ -355,83 +355,25 @@ class AlexaRendererController:
     def previous(self, renderer: MediaRenderer) -> None:
         self._send(renderer, build_control_text('previous', self.skill_name, locale=self.locale))
 
+    def volume_up(self, renderer: MediaRenderer) -> None:
+        self._send(renderer, build_control_text('volume_up', self.skill_name, locale=self.locale))
+
+    def volume_down(self, renderer: MediaRenderer) -> None:
+        self._send(renderer, build_control_text('volume_down', self.skill_name, locale=self.locale))
+
     def set_volume(self, renderer: MediaRenderer, volume: int = 0, adjust: str = 'absolute', use_current: bool = True) -> None:
-        """Set the volume of the Alexa device
-        
-        :param renderer: The media renderer
-        :param volume: The target volume level (0-10 for absolute, ignored for relative adjustments)
-        :param adjust: 'absolute' to set exact volume, 'increase' to increase relative, 'decrease' to decrease relative
-        :param use_current: Whether to use the current Echo volume as the basis for changes
-        """
-        if adjust == 'absolute':
-            level = max(0, min(10, int(volume)))
-            command = 'set_volume'
-            cmd_volume = level
+        """Set the volume by direction only - ignore absolute values."""
+        if adjust == 'increase':
+            self.volume_up(renderer)
+        elif adjust == 'decrease':
+            self.volume_down(renderer)
         else:
-            # For relative adjustments, query current volume first
-            try:
-                current_volume = self._client().get_device_volume(self._device(renderer))
-                if current_volume is None:
-                    if use_current:
-                        raise RendererCommandError('Could not read the current volume.')
-                    else:
-                        # Fallback to simple increase/decrease without current volume
-                        if adjust == 'increase':
-                            level = 1
-                        elif adjust == 'decrease':
-                            level = -1
-                        else:
-                            raise ValueError(f'Invalid adjust mode: {adjust}')
-                        command = 'set_volume'
-                        cmd_volume = level
-                        self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
-                        return
-                
-                current_volume = max(0, min(10, current_volume))
-                
-                if adjust == 'increase':
-                    target_volume = min(10, current_volume + 1)
-                elif adjust == 'decrease':
-                    target_volume = max(0, current_volume - 1)
-                else:
-                    raise ValueError(f'Invalid adjust mode: {adjust}')
-                
-                level = target_volume
-                command = 'set_volume'
-                cmd_volume = level
-            except Exception as error:
-                if use_current:
-                    raise RendererCommandError(f'Failed to adjust volume: {error}') from error
-                else:
-                    # Fallback to simple increase/decrease without current volume
-                    if adjust == 'increase':
-                        level = 1
-                    elif adjust == 'decrease':
-                        level = -1
-                    else:
-                        raise ValueError(f'Invalid adjust mode: {adjust}')
-                    command = 'set_volume'
-                    cmd_volume = level
-                    self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
-                    return
-        
-        self._send(renderer, build_control_text(command, self.skill_name, volume=cmd_volume, locale=self.locale))
+            # Try to determine direction if called with absolute values
+            self.volume_up(renderer)
 
     def get_volume(self, renderer: MediaRenderer) -> int:
-        """Read the current volume of the Alexa device
-
-        :param renderer: The media renderer
-        :return: The volume on the Alexa scale of 0 to 10, or None when it cannot be read
-        :rtype: int | None
-        """
-
-        device = self._device(renderer)
-
-        try:
-            return self._client().get_device_volume(device)
-        except AlexaRemoteError as error:
-            logger.warning('Could not read the volume of %s: %s', device.get('name'), error)
-            return None
+        """Read the current volume of the Alexa device - no longer supported."""
+        return None
 
     def _lookup_track(self, renderer: MediaRenderer) -> tuple:
         """Look the track of the current URI up in the Navidrome collection."""
@@ -522,6 +464,14 @@ class RendererHost:
                                               DEFAULT_DISABLE_REFRESH).strip().lower()
                                 != 'false')
 
+        # Disable SSDP byebye announcements (e.g., on stop or when removing renderers).
+        # Can be enabled with NAVI_ALEXA_RENDERER_DISABLE_BYEBYE=false.
+        self.disable_byebye = (self.env.get('NAVI_ALEXA_RENDERER_DISABLE_BYEBYE',
+                                            'false').strip().lower()
+                               in ('1', 'true', 'yes', 'on'))
+        if self.disable_byebye:
+            logger.info('SSDP ssdp:byebye announcements are disabled via NAVI_ALEXA_RENDERER_DISABLE_BYEBYE.')
+
         self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
         self._announce_stop = threading.Event()
 
@@ -594,7 +544,8 @@ class RendererHost:
         logger.info('Stopping the castNavidrome renderer host.')
         self._stop_event.set()
         self._announce_stop.set()
-        self.ssdp.announce_byebye()
+        if not getattr(self, 'disable_byebye', False):
+            self.ssdp.announce_byebye()
         self.ssdp.stop()
         self.server.stop()
 
@@ -697,7 +648,8 @@ class RendererHost:
 
         for renderer in self.server.renderers():
             if renderer.udid not in renderers:
-                self.ssdp.announce_byebye_for(renderer)
+                if not getattr(self, 'disable_byebye', False):
+                    self.ssdp.announce_byebye_for(renderer)
                 self.server.remove_renderer(renderer.udid)
                 logger.info('Removed the media renderer "%s" (%s).', renderer.friendly_name, renderer.udid)
 

@@ -1,6 +1,10 @@
+![castNavidrome logo](./docs/images/cast_navidrome_logo.jpg)
+
 # castNavidrome
 
 castNavidrome turns every Alexa device into its own UPnP/DLNA media renderer, so DLNA clients (Symfonium, Supersonic, …) can cast music to individual Echoes. It also bridges Alexa devices to a Subsonic API compatible media server (for example Navidrome) for voice-controlled playback of your own music collection.
+
+![symfonium screenshot](./docs/images/symfonium-screenshot.jpeg)
 
 **castNavidrome is a fork of [AskNavidrome](https://github.com/rosskouk/asknavidrome)** (Ross Stewart, MIT License) with local extensions from several community forks plus a built-in UPnP MediaRenderer for every Alexa device. See [Fork of AskNavidrome](#fork-of-asknavidrome) and [CREDITS.md](CREDITS.md).
 
@@ -21,7 +25,7 @@ This README: English.
 - [`README.de.md`](README.de.md) — Deutsch
 - [`README.es.md`](README.es.md) — Español
 
-Interaction models for the Alexa Developer Console are in [`alexa/`](alexa) for `de-DE`, `en-US`, `es-ES`, `fr-FR`, `it-IT`, `pt-BR`.
+Interaction models for the Alexa Developer Console are in [`alexa/`](alexa) for `de-DE`, `en-US`, `es-ES`, `fr-FR`, `it-IT`, `pt-BR`. (AI-Translated)
 
 ## Fork of AskNavidrome
 
@@ -144,6 +148,15 @@ services:
 ```
 
 Only the required variables and fixed paths are in the compose file. Every other setting has a sensible default in the code and can be added to `.env` when you need to change it (see [Configuration](#configuration)). The cookie file (`.secrets/alexa.cookies`) and the state directory (`state/`) are local only and are excluded from version control via `.gitignore`.
+
+### Which variables are required?
+
+castNavidrome splits its configuration into **required** and **optional** environment variables:
+
+- **Required** — the service refuses to start and prints a clear error in the log when one is missing. They are read from the environment or from Docker secrets.
+- **Optional** — when the variable is not set, the code uses a sensible default. When it is set (for example via `docker-compose.yaml` or a Docker secret), the set value takes precedence over the default.
+
+The `docker-compose.yaml` below therefore only contains the required variables plus the optional ones that you want to override. Every optional entry carries a `${VAR:-default}` fallback so that the container still receives a value when the variable is missing from `.env`.
 
 ### Option 2: Run directly with Python
 
@@ -331,6 +344,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Allowed device types (comma separated) | `ECHO,FIRE_TV` |
 | `NAVI_ALEXA_RENDERER_NAME_REGEX` | Regex device names must match | `^Echo` |
 | `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device refresh (default: only once at container start) | `true` |
+| `NAVI_ALEXA_RENDERER_DISABLE_BYEBYE` | Disable SSDP `ssdp:byebye` announcements on stop or when removing renderers | `false` |
 | `NAVI_ALEXA_RENDERER_ONLY_ONLINE` | Expose only online devices | `no` |
 | `NAVI_ALEXA_RENDERER_LOG_LEVEL` | Log level | `INFO` |
 

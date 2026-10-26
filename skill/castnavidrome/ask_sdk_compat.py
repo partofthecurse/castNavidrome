@@ -37,6 +37,38 @@ def install_certificate_chain_workaround() -> None:
         logger.warning('The Alexa SDK is not installed, the certificate chain workaround is not applied.')
         return
 
+    # Workaround for cryptography deprecation warnings in ask_sdk_webservice_support.verifier
+    try:
+        import inspect
+        from datetime import timezone
+        import ask_sdk_webservice_support.verifier as verifier_module
+        src = inspect.getsource(verifier_module.RequestVerifier._validate_certificate_timestamp)
+        if 'not_valid_before_utc' not in src or 'not_valid_after_utc' not in src:
+            original_validate_ts = verifier_module.RequestVerifier._validate_certificate_timestamp
+
+            def _validate_certificate_timestamp(self, x509_cert):
+                try:
+                    now = __import__('datetime').datetime.now(timezone.utc)
+                    not_before = getattr(x509_cert, 'not_valid_before_utc', None)
+                    not_after = getattr(x509_cert, 'not_valid_after_utc', None)
+                    if not_before is None:
+                        nb = x509_cert.not_valid_before
+                        not_before = nb.replace(tzinfo=timezone.utc) if nb.tzinfo is None else nb.astimezone(timezone.utc)
+                    if not_after is None:
+                        na = x509_cert.not_valid_after
+                        not_after = na.replace(tzinfo=timezone.utc) if na.tzinfo is None else na.astimezone(timezone.utc)
+                    if not (not_before <= now <= not_after):
+                        from ask_sdk_webservice_support.verifier import VerificationException
+                        raise VerificationException("Signing Certificate expired")
+                    return
+                except Exception:
+                    return original_validate_ts(self, x509_cert)
+
+            verifier_module.RequestVerifier._validate_certificate_timestamp = _validate_certificate_timestamp
+            logger.debug('Patched ask_sdk_webservice_support verifier timestamp checks to use UTC.')
+    except Exception as error:
+        logger.debug('Could not patch ask_sdk_webservice_support verifier for UTC timestamps: %s', error)
+
     original_retrieve = verifier.RequestVerifier._retrieve_and_validate_certificate_chain
 
     def _validate_cert_chain(self, cert_chain):

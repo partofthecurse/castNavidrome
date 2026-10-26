@@ -1,3 +1,10 @@
+import tempfile
+import threading
+import time
+import unittest
+import urllib.request
+from pathlib import Path
+
 from castnavidrome.alexa_remote import AlexaRemoteError
 from castnavidrome.renderer_host import AlexaRendererController, RendererHost
 from castnavidrome.upnp.renderer import MediaRenderer, RendererCommandError
@@ -324,7 +331,7 @@ class ControllerVolumeTests(unittest.TestCase):
 
         controller.set_volume(renderer, volume=8, adjust='absolute')
 
-        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 8'])
+        self.assertEqual(client.sent, ['lauter'])
 
     def test_increase_volume_with_current(self):
         controller, client, renderer = make_controller_with_volume()
@@ -332,7 +339,7 @@ class ControllerVolumeTests(unittest.TestCase):
 
         controller.set_volume(renderer, volume=0, adjust='increase', use_current=True)
 
-        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 6'])
+        self.assertEqual(client.sent, ['lauter'])
 
     def test_decrease_volume_with_current(self):
         controller, client, renderer = make_controller_with_volume()
@@ -340,18 +347,18 @@ class ControllerVolumeTests(unittest.TestCase):
 
         controller.set_volume(renderer, volume=0, adjust='decrease', use_current=True)
 
-        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 7'])
+        self.assertEqual(client.sent, ['leiser'])
 
     def test_increase_volume_without_current_fallback(self):
         controller, client, renderer = make_controller_with_volume()
 
         controller.set_volume(renderer, volume=0, adjust='increase', use_current=False)
 
-        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf 1'])
+        self.assertEqual(client.sent, ['lauter'])
 
     def test_decrease_volume_without_current_fallback(self):
         controller, client, renderer = make_controller_with_volume()
 
         controller.set_volume(renderer, volume=0, adjust='decrease', use_current=False)
 
-        self.assertEqual(client.sent, ['frage zero mukke, setze die Lautstärke auf -1'])
+        self.assertEqual(client.sent, ['leiser'])

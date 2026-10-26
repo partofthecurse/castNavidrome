@@ -72,6 +72,12 @@ class FakeController:
     def set_volume(self, renderer, volume=0):
         self.calls.append(('set_volume', volume))
 
+    def volume_up(self, renderer):
+        self.calls.append(('volume_up',))
+
+    def volume_down(self, renderer):
+        self.calls.append(('volume_down',))
+
     def get_volume(self, renderer):
         self.calls.append(('get_volume',))
         return 7
@@ -208,6 +214,7 @@ class MediaRendererTests(unittest.TestCase):
     def test_the_volume_is_limited_to_the_upnp_range(self):
         self.renderer.set_volume('150')
         self.assertEqual(self.renderer.volume, 100)
+        self.renderer._last_volume_change_at = 0  # reset throttling for test
 
         self.renderer.set_volume('-10')
         self.assertEqual(self.renderer.volume, 0)

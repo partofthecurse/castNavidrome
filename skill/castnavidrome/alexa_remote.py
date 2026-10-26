@@ -45,16 +45,11 @@ def build_control_text(command: str, skill_name: str, volume=None, locale: str =
 
     :param str command: The name of the command
     :param str skill_name: The invocation name of the skill
-    :param volume: The volume level, from 0 to 10
+    :param volume: The volume level (ignored)
     :param str locale: The locale of the command
     :return: The voice command
     :rtype: str
     """
-
-    if command == 'set_volume':
-        if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 10:
-            raise ValueError('volume must be an integer between 0 and 10.')
-        return alexa_command('set_volume', locale, volume=volume)
 
     try:
         return alexa_command(command, locale, skill_name=skill_name)
