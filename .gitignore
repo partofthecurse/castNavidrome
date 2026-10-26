@@ -43,4 +43,4 @@ Thumbs.db
 to-do.md
 
 # Tests
-tests/
+# __pycache__ inside tests is ignored by the global __pycache__/ rule above.
