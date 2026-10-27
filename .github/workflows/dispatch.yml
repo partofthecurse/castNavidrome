@@ -18,4 +18,5 @@ jobs:
           docker build . -t partofthecurse/castnavidrome:latest
       - name: Push Docker image
         run: |
+           docker login -u partofthecurse -p ${{ secrets.DOCKER }}
            docker push partofthecurse/castnavidrome:latest
