@@ -1,4 +1,4 @@
-name: build docker image
+name: manual build docker image and push to docker hub
 on:
   workflow_dispatch:
     inputs:
