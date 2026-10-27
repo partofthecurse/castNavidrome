@@ -1,10 +1,7 @@
 services:
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: 'castnavidrome:local'
+    image: partofthecurse/castnavidrome:latest
     environment:
       # ---- Required (no default) ----
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
@@ -53,10 +50,7 @@ services:
   # The container needs the host network so that the SSDP port 1900/udp can
   # be used for the discovery of the renderers.
   castnavidrome-renderer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: 'castnavidrome:local'
+    image: partofthecurse/castnavidrome:latest
     container_name: castnavidrome-renderer
     network_mode: host
     command: ['python3', '-m', 'castnavidrome.renderer_host']
