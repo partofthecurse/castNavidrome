@@ -25,7 +25,7 @@ SSDP_SITE_LOCAL_IPV6_ADDRESS = 'ff05::c'
 SSDP_MULTICAST_PORT = 1900
 SSDP_PORT = 1900
 SSDP_ALL = 'ssdp:all'
-SSDP_ROOT_DEVICE = 'upnp:rootdevice'
+SSDP_SEARCH_TARGET = 'ssdp:all'
 SSDP_MAX_AGE = 1800
 SERVER_HEADER = 'Linux/5.0 UPnP/1.1 castNavidrome/1.0'
 
@@ -40,12 +40,26 @@ class SsdpServer:
 
     def __init__(self, advertise_host: str = '127.0.0.1', http_port: int = 49443,
                  device_type: str = MEDIA_RENDERER_DEVICE_TYPE, port: int = SSDP_PORT,
-                 mx: float = 0.0) -> None:
+                 mx: float = 0.0, notify_count: int = None, notify_delay: float = None) -> None:
         self.advertise_host = advertise_host
         self.http_port = http_port
         self.device_type = device_type
         self.port = port
         self.mx = max(0.0, float(mx))
+
+        if notify_count is None:
+            try:
+                notify_count = int(os.environ.get('NAVI_ALEXA_RENDERER_NOTIFY_COUNT', str(SSDP_NOTIFY_COUNT)))
+            except (TypeError, ValueError):
+                notify_count = SSDP_NOTIFY_COUNT
+        if notify_delay is None:
+            try:
+                notify_delay = float(os.environ.get('NAVI_ALEXA_RENDERER_NOTIFY_DELAY', str(SSDP_NOTIFY_DELAY)))
+            except (TypeError, ValueError):
+                notify_delay = SSDP_NOTIFY_DELAY
+
+        self.notify_count = max(0, int(notify_count))
+        self.notify_delay = max(0.0, float(notify_delay))
 
         # The search targets the renderers answer to.  A client that searches
         # for "ssdp:all" expects one answer per target, and clients like
@@ -403,47 +417,59 @@ class SsdpServer:
     # Announcements
     #
 
-    def announce(self, count: int = SSDP_NOTIFY_COUNT, delay: float = SSDP_NOTIFY_DELAY) -> None:
-        """Send the ssdp:alive notifications for all known renderers.
+    def announce(self, count: int = None, delay: float = None) -> None:
+        """Send the ssdp:alive notifications for all known renderers."""
 
-        Every notification is repeated ``count`` times with ``delay`` seconds
-        between the repetitions, so that a single lost UDP multicast packet
-        does not hide a renderer from the clients.
+        if not self._sockets:
+            return
 
-        :param int count: The number of times every notification is repeated
-        :param float delay: The seconds to wait between two repetitions
-        """
+        if count is None:
+            count = getattr(self, 'notify_count', SSDP_NOTIFY_COUNT)
+        if delay is None:
+            delay = getattr(self, 'notify_delay', SSDP_NOTIFY_DELAY)
 
-        for _ in range(max(1, count)):
+        count = max(0, int(count))
+        delay = max(0.0, float(delay))
+
+        if count == 0:
+            return
+
+        for _ in range(count):
             for renderer in self.renderers():
                 for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:alive', target)
-                    # Send to both IPv4 and IPv6 multicast addresses
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
-            time.sleep(delay)
+            if delay > 0:
+                time.sleep(delay)
 
-    def announce_byebye(self, count: int = SSDP_NOTIFY_COUNT, delay: float = SSDP_NOTIFY_DELAY) -> None:
-        """Send the ssdp:byebye notifications for all known renderers.
+    def announce_byebye(self, count: int = None, delay: float = None) -> None:
+        """Send the ssdp:byebye notifications for all known renderers."""
 
-        Every notification is repeated ``count`` times with ``delay`` seconds
-        between the repetitions, so that the clients reliably remove the
-        renderers from their cache.
+        if not self._sockets:
+            return
 
-        :param int count: The number of times every notification is repeated
-        :param float delay: The seconds to wait between two repetitions
-        """
+        if count is None:
+            count = getattr(self, 'notify_count', SSDP_NOTIFY_COUNT)
+        if delay is None:
+            delay = getattr(self, 'notify_delay', SSDP_NOTIFY_DELAY)
 
-        for _ in range(max(1, count)):
+        count = max(0, int(count))
+        delay = max(0.0, float(delay))
+
+        if count == 0:
+            return
+
+        for _ in range(count):
             for renderer in self.renderers():
                 for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:byebye', target)
-                    # Send to both IPv4 and IPv6 multicast addresses
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
-            time.sleep(delay)
+            if delay > 0:
+                time.sleep(delay)
 
     def announce_byebye_for(self, renderer) -> None:
         """Sendet ssdp:byebye für einen einzelnen Renderer.

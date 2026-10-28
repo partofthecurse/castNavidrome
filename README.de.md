@@ -326,7 +326,11 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_ALEXA_RENDERER_ENABLED` | Renderer aktivieren | `yes` |
 | `NAVI_ALEXA_RENDERER_PORT` | UPnP-Beschreibungs-/Steuerungsport | `49443` |
 | `NAVI_ALEXA_RENDERER_ANNOUNCE` | Welche Titel angesagt werden: `explicit`, `always`, `never` | `explicit` |
-| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Sekunden zwischen den periodischen SSDP `ssdp:alive`-Ansagen | `60` |
+| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Sekunden zwischen den periodischen SSDP `ssdp:alive`-Ansagen (`<= 0` deaktiviert die Schleife) | `60` |
+| `NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE` | Periodische SSDP-Ankündigungen deaktivieren (`true`/`false`) | `false` |
+| `NAVI_ALEXA_RENDERER_NOTIFY_COUNT` | Wie oft `ssdp:alive`/`ssdp:byebye` wiederholt wird (`0` = keine Wiederholungen) | `3` |
+| `NAVI_ALEXA_RENDERER_NOTIFY_DELAY` | Sekunden zwischen SSDP-Notify-Wiederholungen (`0` = keine Verzögerung) | `0.4` |
+| `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Sekunden Inaktivität des Clients, nach denen die Wiedergabe stoppt (`0` = deaktiviert) | `0` |
 | `NAVI_ALEXA_RENDERER_STATE_FILE` | Registry, die Alexa-Geräte auf Renderer-UUIDs abbildet | `/var/lib/castnavidrome/renderer-devices.json` |
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Präfix für Renderer-Namen | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Erlaubte Gerätetypen (kommagetrennt) | `ECHO,FIRE_TV` |

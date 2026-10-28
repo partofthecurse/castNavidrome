@@ -475,6 +475,11 @@ class RendererHost:
 
         self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
         self._announce_stop = threading.Event()
+        self.disable_announce = (self.env.get('NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE',
+                                              'false').strip().lower()
+                                in ('1', 'true', 'yes', 'on')) or self.announce_interval <= 0
+        if self.disable_announce:
+            logger.info('Periodic SSDP announcements are disabled via NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE or NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL <= 0.')
 
         # The number of seconds of client inactivity after which the
         # renderer stops playback instead of advancing to the next track.
@@ -545,8 +550,9 @@ class RendererHost:
         # call is enough to survive a lost UDP multicast packet.
         self.ssdp.announce()
 
-        announce_thread = threading.Thread(target=self._announce_loop, name='renderer-announce', daemon=True)
-        announce_thread.start()
+        if not getattr(self, 'disable_announce', False):
+            announce_thread = threading.Thread(target=self._announce_loop, name='renderer-announce', daemon=True)
+            announce_thread.start()
 
     def stop(self) -> None:
         logger.info('Stopping the castNavidrome renderer host.')
@@ -565,13 +571,14 @@ class RendererHost:
         return self.ssdp.is_healthy() and self.server.is_healthy()
 
     def _announce_loop(self) -> None:
-        """Periodically re-announce the renderers via SSDP.
+        """Periodically re-announce the renderers via SSDP."""
 
-        Clients that boot between two refresh cycles and passively listen for
-        ssdp:alive notifications instead of sending M-SEARCH still discover the
-        renderers within ``announce_interval`` seconds.
-        """
+        if getattr(self, 'disable_announce', False):
+            return
+
         while not self._announce_stop.wait(self.announce_interval):
+            if getattr(self, 'disable_announce', False):
+                break
             self.ssdp.announce()
 
     def _refresh_loop(self) -> None:
