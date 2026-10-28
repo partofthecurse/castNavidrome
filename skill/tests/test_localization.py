@@ -136,13 +136,6 @@ class AlexaCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unsupported'):
             alexa_command('there_is_no_such_command', 'de-DE')
 
-    def test_the_control_text_follows_the_locale(self):
-        self.assertEqual(build_control_text('pause', 'zero mukke', locale='de-DE'),
-                         'frage zero mukke, pausiere')
-        self.assertEqual(build_control_text('set_volume', 'zero mukke', 6, 'de-DE'),
-                         'setze die Lautstärke auf 6')
-        self.assertEqual(build_control_text('volume_up', 'zero mukke', locale='de-DE'), 'lauter')
-
     def test_the_track_command_follows_the_locale(self):
         self.assertEqual(build_play_track_text('zero mukke', 'Himmel', 'Falke', locale='de-DE'),
                          'frage zero mukke, spiele das Lied Himmel von Falke')

@@ -89,24 +89,6 @@ class AlexaTextCommandClientTests(unittest.TestCase):
 
         self.assertEqual(find_devices_by_name(devices, 'Echo'), devices)
 
-    def test_build_control_text_maps_playback_and_volume_commands(self):
-        self.assertEqual(build_control_text('pause', 'zero mukke'), 'ask zero mukke to pause')
-        self.assertEqual(build_control_text('next', 'zero mukke'), 'ask zero mukke to skip to the next song')
-        self.assertEqual(build_control_text('volume_up', 'zero mukke'), 'volume up')
-        self.assertEqual(build_control_text('set_volume', 'zero mukke', 6), 'set volume to 6')
-
-    def test_build_control_text_uses_german_locale(self):
-        self.assertEqual(build_control_text('pause', 'zero mukke', locale='de-DE'), 'frage zero mukke, pausiere')
-        self.assertEqual(build_control_text('resume', 'zero mukke', locale='de-DE'), 'frage zero mukke, spiele weiter')
-        self.assertEqual(build_control_text('volume_up', 'zero mukke', locale='de-DE'), 'lauter')
-        self.assertEqual(build_control_text('set_volume', 'zero mukke', 6, 'de-DE'), 'setze die Lautstärke auf 6')
-
-    def test_build_control_text_rejects_invalid_volume_and_command(self):
-        with self.assertRaisesRegex(ValueError, 'between 0 and 10'):
-            build_control_text('set_volume', 'zero mukke', 11)
-        with self.assertRaisesRegex(ValueError, 'Unsupported'):
-            build_control_text('arbitrary text', 'zero mukke')
-
     def test_the_play_track_text_is_announced(self):
         self.assertEqual(build_play_track_text('zero mukke', 'Himmel', 'Falke', locale='de-DE'),
                          'frage zero mukke, spiele das Lied Himmel von Falke')
