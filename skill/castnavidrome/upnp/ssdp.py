@@ -339,7 +339,7 @@ class SsdpServer:
     def _matches(self, search_target: str, udid: str) -> bool:
         target = search_target.lower()
 
-        if target in (SSDP_ALL, SSDP_ROOT_DEVICE):
+        if target in (SSDP_ALL, SSDP_SEARCH_TARGET):
             return True
 
         if target == f'uuid:{udid.lower()}':
@@ -365,10 +365,10 @@ class SsdpServer:
         target = search_target.lower()
 
         if target == SSDP_ALL:
-            return [SSDP_ROOT_DEVICE] + list(self.search_targets)
+            return [SSDP_SEARCH_TARGET] + list(self.search_targets)
 
-        if target == SSDP_ROOT_DEVICE:
-            return [SSDP_ROOT_DEVICE] + list(self.search_targets)
+        if target == SSDP_SEARCH_TARGET:
+            return [SSDP_SEARCH_TARGET] + list(self.search_targets)
 
         return [search_target]
 
@@ -437,7 +437,7 @@ class SsdpServer:
 
         for _ in range(count):
             for renderer in self.renderers():
-                for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+                for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:alive', target)
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
@@ -464,7 +464,7 @@ class SsdpServer:
 
         for _ in range(count):
             for renderer in self.renderers():
-                for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+                for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:byebye', target)
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
                     self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
@@ -481,7 +481,7 @@ class SsdpServer:
         if not self.is_healthy():
             return
 
-        for target in [SSDP_ROOT_DEVICE] + list(self.search_targets):
+        for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
             payload = self._build_notify(renderer, 'ssdp:byebye', target)
             self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
             self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
