@@ -705,33 +705,34 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         print(f'PlaySongByArtist: song={song!r}, artist={artist!r}', flush=True)
 
         # Alexa's NLU is unreliable: it may put the whole phrase "doubt von
-        # Portugal. The Man" into the song slot, or resolve the word "von"
-        # itself as the artist slot.  The artist slot is therefore ignored
-        # completely.  Extract just the title part from the song slot so that
-        # the search works even when Alexa puts "title von artist" into it.
+        # Portugal. The Man" into the song slot, or resolve the filler word
+        # "von" itself as the artist slot.  Split the song slot on " von " /
+        # " by " to recover title and artist separately, and keep the artist
+        # when it is useful (ignore filler words like "von"/"by").
         song_title = song
+        artist_from_song = ''
         song_lower = song.lower()
-        for sep in (' von ', ' by ', ' von', ' by', ' von ', ' by ',
-                    ' von', ' by', ' the '):
+        for sep in (' von ', ' by '):
             idx = song_lower.find(sep.lower())
             if idx >= 0:
-                candidate = song[:idx].strip()
-                if candidate:
-                    song_title = candidate
-                    break
+                song_title = song[:idx].strip()
+                artist_from_song = song[idx + len(sep):].strip()
+                break
 
-        # If the title still contains spaces, try just the first word as a
-        # last resort (e.g. "doubt von Portugal. The Man" -> "doubt").
-        if song_title == song and ' ' in song:
-            song_title = song.split()[0]
+        filler = {'von', 'by', 'the', 'der', 'die', 'das', ''}
+        if artist and artist.strip().lower() not in filler:
+            final_artist = artist.strip()
+        else:
+            final_artist = artist_from_song
 
-        print(f'PlaySongByArtist: searching for title={song_title!r}', flush=True)
+        print(f'PlaySongByArtist: title={song_title!r}, artist={final_artist!r}', flush=True)
 
-        # Search for the song by title only.  Matching by artist is unreliable
-        # because Alexa's slot resolution can differ from Navidrome's stored
-        # artist name (special characters, spoken variants like "Greenday"
-        # vs "Green Day", unresolved slots).
-        song_dets = connection.find_song_by_title(song_title)
+        # Search for the song by title and artist.  If the artist match
+        # fails (slot resolution differs from Navidrome's stored name), fall
+        # back to a title-only search.
+        song_dets = connection.find_song_by_title(song_title, final_artist)
+        if not song_dets and final_artist:
+            song_dets = connection.find_song_by_title(song_title)
 
         if not song_dets:
             # The artist slot is unreliable (Alexa may resolve "von" or "by"
