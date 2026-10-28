@@ -721,6 +721,12 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
             song_dets = connection.find_song_by_title(song, artist_name)
 
             if not song_dets:
+                # Fall back to searching by title only, in case the artist
+                # name does not match exactly (special characters, Alexa slot
+                # resolution differences).
+                song_dets = connection.find_song_by_title(song)
+
+            if not song_dets:
                 text = translate(handler_input, 'song_not_found', song=song, artist=artist)
                 handler_input.response_builder.speak(text).ask(text)
 
