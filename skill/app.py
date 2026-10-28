@@ -1086,7 +1086,7 @@ class castNavidromePlaySong(AbstractRequestHandler):
         song_list = connection.search_song(song)
 
         if not song_list:
-            text = translate(handler_input, 'song_not_found', song=song)
+            text = translate(handler_input, 'song_not_found', song=song, artist='')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
@@ -1094,7 +1094,7 @@ class castNavidromePlaySong(AbstractRequestHandler):
         song_dets = [item.get('id') for item in song_list if item.get('id')]
 
         if not song_dets:
-            text = translate(handler_input, 'song_not_found', song=song)
+            text = translate(handler_input, 'song_not_found', song=song, artist='')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
