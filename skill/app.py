@@ -709,6 +709,11 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
         else:
             artist_id = artist_lookup[0].get('id')
+            # Navidrome's canonical artist name (from the lookup result),
+            # because Alexa's resolved slot value (for example "Greenday")
+            # can differ from the name stored in Navidrome (for example
+            # "Green Day").
+            artist_name = artist_lookup[0].get('name', '')
 
             # Search for song
             song_list = connection.search_song(song) or []
@@ -720,10 +725,10 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
             song_dets = [item.get('id') for item in song_list
                          if item.get('artistId') == artist_id]
 
-            if not song_dets and artist:
+            if not song_dets and artist_name:
                 song_dets = [item.get('id') for item in song_list
                              if str(item.get('artist', '')).casefold()
-                             == str(artist).casefold()]
+                             == str(artist_name).casefold()]
 
             if not song_dets:
                 text = translate(handler_input, 'song_not_found', song=song, artist=artist)
