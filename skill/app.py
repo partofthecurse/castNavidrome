@@ -702,7 +702,7 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
-        print(f'PlaySongByArtist: song={song!r}, artist={artist!r}', flush=True)
+        logger.debug('PlaySongByArtist: song=%r, artist=%r', song, artist)
 
         # Alexa's NLU is unreliable: it may put the whole phrase "doubt von
         # Portugal. The Man" into the song slot, or resolve the filler word
@@ -725,7 +725,7 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         else:
             final_artist = artist_from_song
 
-        print(f'PlaySongByArtist: title={song_title!r}, artist={final_artist!r}', flush=True)
+        logger.debug('PlaySongByArtist: title=%r, artist=%r', song_title, final_artist)
 
         # Search for the song by title and artist.  If the artist match
         # fails (slot resolution differs from Navidrome's stored name), fall
@@ -733,6 +733,8 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         song_dets = connection.find_song_by_title(song_title, final_artist)
         if not song_dets and final_artist:
             song_dets = connection.find_song_by_title(song_title)
+
+        logger.debug('PlaySongByArtist: song_dets=%r', song_dets)
 
         if not song_dets:
             # The artist slot is unreliable (Alexa may resolve "von" or "by"
@@ -1093,33 +1095,53 @@ class castNavidromePlaySong(AbstractRequestHandler):
         # Get the requested song
         song = get_resolved_slot_value(handler_input, 'song')
 
-        logger.debug(f'Searching for the song {song}')
-
-        song_list = connection.search_song(song)
-
-        if not song_list:
-            text = translate(handler_input, 'song_not_found', song=song, artist='')
+        if not song:
+            text = translate(handler_input, 'did_not_get_that')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
 
-        song_dets = [item.get('id') for item in song_list if item.get('id')]
+        logger.debug('castNavidromePlaySong: song=%r', song)
+
+        # Alexa's NLU may put the whole phrase "doubt von Portugal. The Man"
+        # into the song slot.  Split on " von " / " by " to recover title and
+        # artist, ignoring filler words like "von"/"by".
+        song_title = song
+        artist_from_song = ''
+        song_lower = song.lower()
+        for sep in (' von ', ' by '):
+            idx = song_lower.find(sep.lower())
+            if idx >= 0:
+                song_title = song[:idx].strip()
+                artist_from_song = song[idx + len(sep):].strip()
+                break
+
+        filler = {'von', 'by', 'the', 'der', 'die', 'das', ''}
+        final_artist = artist_from_song
+
+        song_dets = connection.find_song_by_title(song_title, final_artist)
+        if not song_dets and final_artist:
+            song_dets = connection.find_song_by_title(song_title)
+        if not song_dets:
+            song_dets = connection.find_song_by_title(song)
 
         if not song_dets:
-            text = translate(handler_input, 'song_not_found', song=song, artist='')
+            text = translate(handler_input, 'song_not_found', song=song_title, artist='')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
 
         play_queue.clear()
-        controller.enqueue_songs(connection, play_queue, song_dets)
+        controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
 
-        speech = translate(handler_input, 'playing_song', song=song)
+        track_details = play_queue.get_next_track()
+
+        speech = translate(handler_input, 'playing_song', song=song_title,
+                           artist=song_dets.get('artist', ''))
         logger.info(speech)
         card = {'title': SKILL_DISPLAY_NAME,
                 'text': speech
                 }
-        track_details = play_queue.get_next_track()
 
         return controller.start_playback('play', speech, card, track_details, handler_input)
 

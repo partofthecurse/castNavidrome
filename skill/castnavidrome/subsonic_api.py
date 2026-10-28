@@ -786,8 +786,11 @@ class SubsonicConnection:
             return None
 
         if artist:
+            artist_norm = ''.join(c for c in str(artist).casefold() if c.isalnum() or c.isspace())
             for song in songs:
-                if str(song.get('artist', '')).casefold() == str(artist).casefold():
+                song_artist = str(song.get('artist', '')).casefold()
+                song_artist_norm = ''.join(c for c in song_artist if c.isalnum() or c.isspace())
+                if song_artist_norm == artist_norm:
                     return song
 
         return songs[0]
