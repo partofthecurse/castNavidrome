@@ -714,6 +714,10 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
             # "Green Day").
             artist_name = artist_lookup[0].get('name', '')
 
+            logger.debug(
+                f'PlaySongByArtist: song={song!r}, artist={artist!r}, '
+                f'artist_name={artist_name!r}')
+
             # Search for song by title and artist.  Navidrome's find_song_by_title
             # already matches by artist name (case-insensitive), so that songs
             # are found even when Alexa's spoken form differs from Navidrome's
@@ -727,6 +731,27 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
                 song_dets = connection.find_song_by_title(song)
 
             if not song_dets:
+                # Alexa's NLU may put the whole phrase "doubt von Portugal. The
+                # Man" into the song slot instead of splitting title and artist.
+                # Try the part before " von " or " by " as the song title.
+                for separator in (' von ', ' by '):
+                    if separator in song:
+                        short_song = song.split(separator, 1)[0].strip()
+                        if short_song:
+                            song_dets = connection.find_song_by_title(
+                                short_song, artist_name)
+                            if song_dets:
+                                break
+                            song_dets = connection.find_song_by_title(
+                                short_song)
+                            if song_dets:
+                                break
+                        break
+
+            if not song_dets:
+                logger.debug(
+                    f'PlaySongByArtist: song not found for song={song!r}, '
+                    f'artist={artist!r}')
                 text = translate(handler_input, 'song_not_found', song=song, artist=artist)
                 handler_input.response_builder.speak(text).ask(text)
 
