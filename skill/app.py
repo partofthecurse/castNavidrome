@@ -702,17 +702,29 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
-        logger.debug(f'Searching for the song {song} by {artist}')
+        logger.info(f'PlaySongByArtist: song={song!r}, artist={artist!r}')
 
         # Alexa's NLU may put the whole phrase "doubt von Portugal. The Man"
         # into the song slot instead of splitting title and artist.  Extract
         # just the title part so that the search works even when the artist
-        # ends up in the song slot.
+        # ends up in the song slot.  The separators are tried case-insensitively
+        # and with/without surrounding spaces, because Alexa's slot values can
+        # vary.
         song_title = song
-        for separator in (' von ', ' by '):
-            if separator in song:
-                song_title = song.split(separator, 1)[0].strip()
+        song_lower = song.lower()
+        for sep in (' von ', ' by ', ' von', ' by', ' von ', ' by ',
+                    ' von', ' by'):
+            idx = song_lower.find(sep.lower())
+            if idx >= 0:
+                song_title = song[:idx].strip()
                 break
+
+        # If the title still contains spaces, try just the first word as a
+        # last resort (e.g. "doubt von Portugal. The Man" -> "doubt").
+        if song_title == song and ' ' in song:
+            song_title = song.split()[0]
+
+        logger.info(f'PlaySongByArtist: searching for title={song_title!r}')
 
         # Search for the song by title only.  Matching by artist is unreliable
         # because Alexa's slot resolution can differ from Navidrome's stored
