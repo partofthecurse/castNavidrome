@@ -492,7 +492,7 @@ class SsdpServer:
 
         lines = [
             'NOTIFY * HTTP/1.1',
-            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}; ipv6:[{SSDP_MULTICAST_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}; ipv6site:[{SSDP_SITE_LOCAL_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}',
+            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}',
             f'CACHE-CONTROL: max-age={SSDP_MAX_AGE}',
             f'LOCATION: {location}',
             f'NT: {notify_type}',

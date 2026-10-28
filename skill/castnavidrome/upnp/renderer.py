@@ -757,8 +757,20 @@ class MediaRenderer:
 
     def get_protocol_info(self) -> dict:
         return {
-            'SourceProtocolInfo': 'http-get:*:audio/mpeg:*',
-            'SinkProtocolInfo': 'http-get:*:audio/mpeg:*',
+            'SourceProtocolInfo': (
+                'http-get:*:audio/mpeg:*,'
+                'http-get:*:audio/mp4:*,'
+                'http-get:*:audio/L16:*,'
+                'http-get:*:image/jpeg:*,'
+                'http-get:*:image/png:*'
+            ),
+            'SinkProtocolInfo': (
+                'http-get:*:audio/mpeg:*,'
+                'http-get:*:audio/mp4:*,'
+                'http-get:*:audio/L16:*,'
+                'http-get:*:image/jpeg:*,'
+                'http-get:*:image/png:*'
+            ),
         }
 
     def get_current_connection_ids(self) -> dict:
