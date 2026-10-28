@@ -7,7 +7,7 @@ from castnavidrome.upnp.constants import (
     MEDIA_RENDERER_DEVICE_TYPE,
     RENDERINGCONTROL_SERVICE_TYPE,
 )
-from castnavidrome.upnp.ssdp import SsdpServer, SSDP_ROOT_DEVICE
+from castnavidrome.upnp.ssdp import SsdpServer, SSDP_SEARCH_TARGET
 
 
 class FakeRenderer:
@@ -53,7 +53,7 @@ class SsdpSearchTests(unittest.TestCase):
         targets, usns, _ = self._search('ssdp:all')
 
         self.assertEqual(targets, [
-            SSDP_ROOT_DEVICE,
+            SSDP_SEARCH_TARGET,
             MEDIA_RENDERER_DEVICE_TYPE,
             AVTRANSPORT_SERVICE_TYPE,
             RENDERINGCONTROL_SERVICE_TYPE,
@@ -112,7 +112,7 @@ class SsdpAnnounceTests(unittest.TestCase):
         payloads = self._notify_payloads(count=3, delay=0)
 
         alive = [p for p in payloads if 'NTS: ssdp:alive' in p]
-        targets = [SSDP_ROOT_DEVICE, AVTRANSPORT_SERVICE_TYPE, RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
+        targets = [SSDP_SEARCH_TARGET, AVTRANSPORT_SERVICE_TYPE, RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
         self.assertEqual(len(alive), 3 * (1 + len(targets)))
 
     def test_every_notification_carries_the_location(self):
