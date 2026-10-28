@@ -52,6 +52,7 @@ The software is distributed under the [MIT License](LICENSE). The original copyr
 - An Amazon Echo device whose locale matches the skill locale.
 - An Alexa skill created in the [Amazon Alexa Developer Console](https://developer.amazon.com/alexa/console/ask), with the Audio Player interface enabled and the HTTPS endpoint pointing to this web service.
 - (Optional, for the media renderers) port `1900/udp` available for SSDP discovery and the container able to use the host network or a macvlan.
+- A Client with support for DLNA Casting (Tested with Symfonium on Android (best discovery), Jellybox, Feishin, Supersonic on Windows (okay discovery), Resonus and Yuzic on Android (janky discovery)).
 
 ## Installation
 

@@ -34,7 +34,7 @@ DEFAULT_REFRESH_SECONDS = 300
 DEFAULT_MIN_REFRESH_SECONDS = 10
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 DEFAULT_DISABLE_REFRESH = 'true'
-DEFAULT_SSDP_MX = 0.0
+DEFAULT_SSDP_MX = 2.0
 DEFAULT_CLIENT_TIMEOUT = 0.0
 
 # The prefix of the renderer names is optional.  Without it the renderers
