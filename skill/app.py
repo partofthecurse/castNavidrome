@@ -729,22 +729,22 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         play_queue.clear()
         controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
 
-            track_details = play_queue.get_next_track()
+        track_details = play_queue.get_next_track()
 
-            if self.quiet:
-                # The track is played without an answer of the skill, the
-                # title and the artist are not read out.
-                logger.info(f'Playing track quietly: {track_details.title} by: {track_details.artist}')
+        if self.quiet:
+            # The track is played without an answer of the skill, the
+            # title and the artist are not read out.
+            logger.info(f'Playing track quietly: {track_details.title} by: {track_details.artist}')
 
-                return controller.start_playback('play', None, None, track_details, handler_input)
+            return controller.start_playback('play', None, None, track_details, handler_input)
 
-            speech = translate(handler_input, 'playing_song_by_artist', song=song, artist=artist)
-            logger.info(speech)
-            card = {'title': SKILL_DISPLAY_NAME,
-                    'text': speech
-                    }
+        speech = translate(handler_input, 'playing_song_by_artist', song=song, artist=artist)
+        logger.info(speech)
+        card = {'title': SKILL_DISPLAY_NAME,
+                'text': speech
+                }
 
-            return controller.start_playback('play', speech, card, track_details, handler_input)
+        return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class castNavidromePlaySongByArtistQuiet(castNavidromePlaySongByArtist):
