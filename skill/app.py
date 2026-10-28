@@ -708,27 +708,17 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
             return handler_input.response_builder.response
 
         else:
-            artist_id = artist_lookup[0].get('id')
             # Navidrome's canonical artist name (from the lookup result),
             # because Alexa's resolved slot value (for example "Greenday")
             # can differ from the name stored in Navidrome (for example
             # "Green Day").
             artist_name = artist_lookup[0].get('name', '')
 
-            # Search for song
-            song_list = connection.search_song(song) or []
-
-            # Search for song by given artist.  Try the artist ID first,
-            # fall back to matching by artist name (case-insensitive), so
-            # that songs whose artist ID in the search results differs from
-            # the looked-up artist are still found.
-            song_dets = [item.get('id') for item in song_list
-                         if item.get('artistId') == artist_id]
-
-            if not song_dets and artist_name:
-                song_dets = [item.get('id') for item in song_list
-                             if str(item.get('artist', '')).casefold()
-                             == str(artist_name).casefold()]
+            # Search for song by title and artist.  Navidrome's find_song_by_title
+            # already matches by artist name (case-insensitive), so that songs
+            # are found even when Alexa's spoken form differs from Navidrome's
+            # stored name (for example a dot in "Portugal. The Man").
+            song_dets = connection.find_song_by_title(song, artist_name)
 
             if not song_dets:
                 text = translate(handler_input, 'song_not_found', song=song, artist=artist)
@@ -737,7 +727,7 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
                 return handler_input.response_builder.response
 
             play_queue.clear()
-            controller.enqueue_songs(connection, play_queue, song_dets)
+            controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
 
             track_details = play_queue.get_next_track()
 
