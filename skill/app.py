@@ -702,29 +702,30 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
-        logger.info(f'PlaySongByArtist: song={song!r}, artist={artist!r}')
+        print(f'PlaySongByArtist: song={song!r}, artist={artist!r}', flush=True)
 
-        # Alexa's NLU may put the whole phrase "doubt von Portugal. The Man"
-        # into the song slot instead of splitting title and artist.  Extract
-        # just the title part so that the search works even when the artist
-        # ends up in the song slot.  The separators are tried case-insensitively
-        # and with/without surrounding spaces, because Alexa's slot values can
-        # vary.
+        # Alexa's NLU is unreliable: it may put the whole phrase "doubt von
+        # Portugal. The Man" into the song slot, or resolve the word "von"
+        # itself as the artist slot.  The artist slot is therefore ignored
+        # completely.  Extract just the title part from the song slot so that
+        # the search works even when Alexa puts "title von artist" into it.
         song_title = song
         song_lower = song.lower()
         for sep in (' von ', ' by ', ' von', ' by', ' von ', ' by ',
-                    ' von', ' by'):
+                    ' von', ' by', ' the '):
             idx = song_lower.find(sep.lower())
             if idx >= 0:
-                song_title = song[:idx].strip()
-                break
+                candidate = song[:idx].strip()
+                if candidate:
+                    song_title = candidate
+                    break
 
         # If the title still contains spaces, try just the first word as a
         # last resort (e.g. "doubt von Portugal. The Man" -> "doubt").
         if song_title == song and ' ' in song:
             song_title = song.split()[0]
 
-        logger.info(f'PlaySongByArtist: searching for title={song_title!r}')
+        print(f'PlaySongByArtist: searching for title={song_title!r}', flush=True)
 
         # Search for the song by title only.  Matching by artist is unreliable
         # because Alexa's slot resolution can differ from Navidrome's stored
@@ -733,7 +734,10 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         song_dets = connection.find_song_by_title(song_title)
 
         if not song_dets:
-            text = translate(handler_input, 'song_not_found', song=song, artist=artist or '')
+            # The artist slot is unreliable (Alexa may resolve "von" or "by"
+            # as the artist), so pass an empty artist to avoid speaking
+            # "von {artist}" literally.
+            text = translate(handler_input, 'song_not_found', song=song_title, artist='')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
@@ -750,7 +754,8 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
             return controller.start_playback('play', None, None, track_details, handler_input)
 
-        speech = translate(handler_input, 'playing_song_by_artist', song=song, artist=artist)
+        speech = translate(handler_input, 'playing_song_by_artist', song=song_title,
+                           artist=song_dets.get('artist', ''))
         logger.info(speech)
         card = {'title': SKILL_DISPLAY_NAME,
                 'text': speech
