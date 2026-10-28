@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from castnavidrome.alexa_remote import (
     AlexaRemoteError,
     AlexaTextCommandClient,
+    MAX_TEXT_COMMAND_LENGTH,
     build_control_text,
     build_play_track_text,
     find_devices_by_name,
@@ -126,6 +127,36 @@ class AlexaTextCommandClientTests(unittest.TestCase):
             build_play_track_text('zero mukke', long_title, 'Falke', locale='de-DE'),
             'frage zero mukke, spiele das Lied ' + long_title + ' von Falke',
         )
+
+    def test_the_play_track_text_preserves_a_title_with_parentheses(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Song (Live) (Remastered)', 'Falke', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Song (Live) (Remastered) von Falke',
+        )
+
+    def test_the_play_track_text_is_truncated_when_it_is_too_long(self):
+        long_title = 'Langer Titel ' * 50
+        text = build_play_track_text('zero mukke', long_title, 'Falke', locale='de-DE')
+
+        self.assertLessEqual(len(text), MAX_TEXT_COMMAND_LENGTH)
+        self.assertTrue(text.endswith(' von Falke'))
+        self.assertNotIn(long_title, text)
+
+    def test_the_play_track_text_is_truncated_in_english(self):
+        long_title = 'A' * 300
+        text = build_play_track_text('zero mukke', long_title, 'Falke')
+
+        self.assertLessEqual(len(text), MAX_TEXT_COMMAND_LENGTH)
+        self.assertTrue(text.endswith(' by Falke'))
+        self.assertNotIn(long_title, text)
+
+    def test_the_artist_is_truncated_only_when_the_title_is_gone(self):
+        long_title = 'A' * 300
+        long_artist = 'B' * 300
+        text = build_play_track_text('zero mukke', long_title, long_artist, locale='de-DE')
+
+        self.assertEqual(len(text), MAX_TEXT_COMMAND_LENGTH)
+        self.assertEqual(text, 'frage zero mukke, spiele das Lied  von ' + 'B' * 201)
 
     def test_send_play_command_targets_device_and_uses_skill_phrase(self):
         self.mock_response()

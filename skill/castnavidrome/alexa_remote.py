@@ -57,6 +57,39 @@ def build_control_text(command: str, skill_name: str, volume=None, locale: str =
         raise ValueError('Unsupported Alexa control command.') from None
 
 
+# The text of a text command that is sent to an Alexa device must not be
+# too long, otherwise the Alexa service rejects it.  About 250 characters
+# is the practical limit for such a command, this value stays below it.
+MAX_TEXT_COMMAND_LENGTH = 240
+
+
+def _fit_text(text: str, max_length: int) -> str:
+    """Cut text to at most max_length characters
+
+    The cut happens at a word boundary when possible, so that no word is
+    split in the middle.
+
+    :param str text: The text to shorten
+    :param int max_length: The maximum length of the result
+    :return: The shortened text
+    :rtype: str
+    """
+
+    if len(text) <= max_length:
+        return text
+
+    if max_length <= 0:
+        return ''
+
+    cut = text[:max_length]
+    space = cut.rfind(' ')
+
+    if space > 0:
+        return cut[:space]
+
+    return cut
+
+
 class AlexaTextCommandClient:
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', timeout: int = 10,
                  opener=None, session: AmazonSession = None) -> None:
@@ -447,4 +480,21 @@ def build_play_track_text(skill_name: str, title: str, artist: str, locale: str 
 
     key = 'play_track_quiet' if quiet else 'play_track'
 
-    return alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
+    text = alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
+
+    if len(text) <= MAX_TEXT_COMMAND_LENGTH:
+        return text
+
+    # The title comes before the artist in the command, so the title is
+    # shortened first.  The artist is always kept complete at the end of
+    # the command, so that it is not cut off or moved to the wrong place.
+    excess = len(text) - MAX_TEXT_COMMAND_LENGTH
+    title = _fit_text(title, max(0, len(title) - excess))
+    text = alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
+
+    if len(text) > MAX_TEXT_COMMAND_LENGTH:
+        excess = len(text) - MAX_TEXT_COMMAND_LENGTH
+        artist = _fit_text(artist, max(0, len(artist) - excess))
+        text = alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
+
+    return text
