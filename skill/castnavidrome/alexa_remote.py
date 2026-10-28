@@ -8,6 +8,7 @@ ALEXA_API_HOST_MAP = {
 
 import json
 import logging
+import re
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -88,6 +89,25 @@ def _fit_text(text: str, max_length: int) -> str:
         return cut[:space]
 
     return cut
+
+
+def _strip_parentheses(text: str) -> str:
+    """Remove parenthetical additions from a title for a voice command
+
+    Alexa's voice command handling often cannot cope with live/remaster
+    tags and other parenthetical additions in song titles (e.g.
+    ``Holiday (live at Makuhari Messe, Tokyo, Japan, 13/07/05)``).
+    Stripping them makes the command shorter and easier for the device to
+    understand.
+
+    :param str text: The text to clean
+    :return: The text without parenthetical parts
+    :rtype: str
+    """
+
+    cleaned = re.sub(r'\s*\([^)]*\)', '', text or '')
+
+    return ' '.join(cleaned.split())
 
 
 class AlexaTextCommandClient:
@@ -479,6 +499,12 @@ def build_play_track_text(skill_name: str, title: str, artist: str, locale: str 
     """
 
     key = 'play_track_quiet' if quiet else 'play_track'
+
+    # Parenthetical additions in song titles (live/remaster tags, dates,
+    # venues) confuse Alexa's voice command handling and make the command
+    # longer.  Strip them before building the command so the artist stays
+    # at the end and the device can actually match the track.
+    title = _strip_parentheses(title)
 
     text = alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
 

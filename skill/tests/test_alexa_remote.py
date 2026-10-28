@@ -131,7 +131,19 @@ class AlexaTextCommandClientTests(unittest.TestCase):
     def test_the_play_track_text_preserves_a_title_with_parentheses(self):
         self.assertEqual(
             build_play_track_text('zero mukke', 'Song (Live) (Remastered)', 'Falke', locale='de-DE'),
-            'frage zero mukke, spiele das Lied Song (Live) (Remastered) von Falke',
+            'frage zero mukke, spiele das Lied Song von Falke',
+        )
+
+    def test_the_play_track_text_strips_parenthetical_additions(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Holiday (live at Makuhari Messe, Tokyo, Japan, 13/07/05)', 'Greenday', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Holiday von Greenday',
+        )
+
+    def test_the_play_track_text_preserves_a_title_without_parentheses(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Himmel', 'Falke', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Himmel von Falke',
         )
 
     def test_the_play_track_text_is_truncated_when_it_is_too_long(self):
