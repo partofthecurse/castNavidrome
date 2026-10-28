@@ -696,69 +696,38 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
         artist = get_resolved_slot_value(handler_input, 'artist')
         song = get_resolved_slot_value(handler_input, 'song')
 
-        logger.debug(f'Searching for the song {song} by {artist}')
-
-        # Search for the artist
-        artist_lookup = connection.search_artist(artist)
-
-        if artist_lookup is None:
-            text = translate(handler_input, 'artist_not_found', artist=artist)
+        if not song:
+            text = translate(handler_input, 'did_not_get_that')
             handler_input.response_builder.speak(text).ask(text)
 
             return handler_input.response_builder.response
 
-        else:
-            # Navidrome's canonical artist name (from the lookup result),
-            # because Alexa's resolved slot value (for example "Greenday")
-            # can differ from the name stored in Navidrome (for example
-            # "Green Day").
-            artist_name = artist_lookup[0].get('name', '')
+        logger.debug(f'Searching for the song {song} by {artist}')
 
-            logger.debug(
-                f'PlaySongByArtist: song={song!r}, artist={artist!r}, '
-                f'artist_name={artist_name!r}')
+        # Alexa's NLU may put the whole phrase "doubt von Portugal. The Man"
+        # into the song slot instead of splitting title and artist.  Extract
+        # just the title part so that the search works even when the artist
+        # ends up in the song slot.
+        song_title = song
+        for separator in (' von ', ' by '):
+            if separator in song:
+                song_title = song.split(separator, 1)[0].strip()
+                break
 
-            # Search for song by title and artist.  Navidrome's find_song_by_title
-            # already matches by artist name (case-insensitive), so that songs
-            # are found even when Alexa's spoken form differs from Navidrome's
-            # stored name (for example a dot in "Portugal. The Man").
-            song_dets = connection.find_song_by_title(song, artist_name)
+        # Search for the song by title only.  Matching by artist is unreliable
+        # because Alexa's slot resolution can differ from Navidrome's stored
+        # artist name (special characters, spoken variants like "Greenday"
+        # vs "Green Day", unresolved slots).
+        song_dets = connection.find_song_by_title(song_title)
 
-            if not song_dets:
-                # Fall back to searching by title only, in case the artist
-                # name does not match exactly (special characters, Alexa slot
-                # resolution differences).
-                song_dets = connection.find_song_by_title(song)
+        if not song_dets:
+            text = translate(handler_input, 'song_not_found', song=song, artist=artist or '')
+            handler_input.response_builder.speak(text).ask(text)
 
-            if not song_dets:
-                # Alexa's NLU may put the whole phrase "doubt von Portugal. The
-                # Man" into the song slot instead of splitting title and artist.
-                # Try the part before " von " or " by " as the song title.
-                for separator in (' von ', ' by '):
-                    if separator in song:
-                        short_song = song.split(separator, 1)[0].strip()
-                        if short_song:
-                            song_dets = connection.find_song_by_title(
-                                short_song, artist_name)
-                            if song_dets:
-                                break
-                            song_dets = connection.find_song_by_title(
-                                short_song)
-                            if song_dets:
-                                break
-                        break
+            return handler_input.response_builder.response
 
-            if not song_dets:
-                logger.debug(
-                    f'PlaySongByArtist: song not found for song={song!r}, '
-                    f'artist={artist!r}')
-                text = translate(handler_input, 'song_not_found', song=song, artist=artist)
-                handler_input.response_builder.speak(text).ask(text)
-
-                return handler_input.response_builder.response
-
-            play_queue.clear()
-            controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
+        play_queue.clear()
+        controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
 
             track_details = play_queue.get_next_track()
 
