@@ -711,10 +711,19 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
             artist_id = artist_lookup[0].get('id')
 
             # Search for song
-            song_list = connection.search_song(song)
+            song_list = connection.search_song(song) or []
 
-            # Search for song by given artist.
-            song_dets = [item.get('id') for item in song_list if item.get('artistId') == artist_id]
+            # Search for song by given artist.  Try the artist ID first,
+            # fall back to matching by artist name (case-insensitive), so
+            # that songs whose artist ID in the search results differs from
+            # the looked-up artist are still found.
+            song_dets = [item.get('id') for item in song_list
+                         if item.get('artistId') == artist_id]
+
+            if not song_dets and artist:
+                song_dets = [item.get('id') for item in song_list
+                             if str(item.get('artist', '')).casefold()
+                             == str(artist).casefold()]
 
             if not song_dets:
                 text = translate(handler_input, 'song_not_found', song=song, artist=artist)
