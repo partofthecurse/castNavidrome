@@ -339,7 +339,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_ENABLED` | Enable the renderers | `yes` |
 | `NAVI_ALEXA_RENDERER_PORT` | UPnP description/control port | `49443` |
 | `NAVI_ALEXA_RENDERER_ANNOUNCE` | Which tracks are announced: `explicit`, `always`, `never` | `explicit` |
-| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP `ssdp:alive` announcements | `60` |
+| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP `ssdp:alive` announcements | `720` |
 | `NAVI_ALEXA_RENDERER_STATE_FILE` | Registry mapping Alexa devices → renderer UUIDs | `/var/lib/castnavidrome/renderer-devices.json` |
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Prefix for renderer names | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Allowed device types (comma separated) | `ECHO,FIRE_TV` |
@@ -348,7 +348,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_DISABLE_BYEBYE` | Disable SSDP `ssdp:byebye` announcements on stop or when removing renderers | `false` |
 | `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Seconds of client inactivity after which playback stops (`0` = disabled) | `0` |
 | `NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE` | Disable periodic SSDP announcements (`true`/`false`) | `false` |
-| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP announcements (`<= 0` disables the loop) | `60` |
+| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP announcements (`<= 0` disables the loop) | `720` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_COUNT` | Number of times `ssdp:alive`/`ssdp:byebye` are repeated (`0` = no repeats) | `3` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_DELAY` | Seconds between SSDP notify repetitions (`0` = no delay) | `0.4` |
 | `NAVI_ALEXA_RENDERER_ONLY_ONLINE` | Expose only online devices | `no` |

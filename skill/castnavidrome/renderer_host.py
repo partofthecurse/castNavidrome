@@ -473,7 +473,7 @@ class RendererHost:
         if self.disable_byebye:
             logger.info('SSDP ssdp:byebye announcements are disabled via NAVI_ALEXA_RENDERER_DISABLE_BYEBYE.')
 
-        self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
+        self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '720'))
         self._announce_stop = threading.Event()
         self.disable_announce = (self.env.get('NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE',
                                               'false').strip().lower()

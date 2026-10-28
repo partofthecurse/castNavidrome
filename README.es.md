@@ -326,7 +326,7 @@ El servicio lee su configuración de variables de entorno.
 | `NAVI_ALEXA_RENDERER_ENABLED` | Habilitar los renderers | `yes` |
 | `NAVI_ALEXA_RENDERER_PORT` | Puerto de descripción/control UPnP | `49443` |
 | `NAVI_ALEXA_RENDERER_ANNOUNCE` | Qué pistas se anuncian: `explicit`, `always`, `never` | `explicit` |
-| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Segundos entre los anuncios periódicos SSDP `ssdp:alive` (`<= 0` deshabilita el bucle) | `60` |
+| `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Segundos entre los anuncios periódicos SSDP `ssdp:alive` (`<= 0` deshabilita el bucle) | `720` |
 | `NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE` | Deshabilitar anuncios SSDP periódicos (`true`/`false`) | `false` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_COUNT` | Número de veces que se repiten `ssdp:alive`/`ssdp:byebye` (`0` = sin repeticiones) | `3` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_DELAY` | Segundos entre repeticiones de notificaciones SSDP (`0` = sin retraso) | `0.4` |
