@@ -49,3 +49,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Rename production compose for deployment
+        run: mv docker-compose.prod.yaml docker-compose.yaml

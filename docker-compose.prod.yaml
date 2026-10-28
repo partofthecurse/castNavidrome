@@ -1,8 +1,7 @@
 services:
   castnavidrome:
     container_name: castnavidrome
-    #image: ghcr.io/partofthecurse/castnavidrome:latest
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     environment:
       # ---- Required (no default) ----
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
@@ -51,8 +50,7 @@ services:
   # The container needs the host network so that the SSDP port 1900/udp can
   # be used for the discovery of the renderers.
   castnavidrome-renderer:
-    #image: ghcr.io/partofthecurse/castnavidrome:latest
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     container_name: castnavidrome-renderer
     network_mode: host
     command: ['python3', '-m', 'castnavidrome.renderer_host']
@@ -68,8 +66,7 @@ services:
       - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
       - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}'
       - 'NAVI_ALEXA_RENDERER_NAME_EXCLUDE=${NAVI_ALEXA_RENDERER_NAME_EXCLUDE}'
-      - 'NAVI_ALEXA_RENDERER_DISABLE_BYEBYE=${NAVI_ALEXA_RENDERER_DISABLE_BYEBYE}'
-      - 'NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE=${NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE}'
+      - NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT=${NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT:-1800}
       # Amazon OAuth (Login with Amazon) - required when the OAuth flow is used
       - 'NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID}'
       - 'NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET}'

@@ -34,7 +34,7 @@ docs/.nojekyll
 docs/searchindex.js
 
 # Docker / build
-
+docker-compose.yaml
 # OS
 .DS_Store
 Thumbs.db
