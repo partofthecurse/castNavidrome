@@ -115,12 +115,19 @@ class MediaRenderer:
     queue of the collection and not in the queue of the skill.
     """
 
-    def __init__(self, udid: str, friendly_name: str, device: dict = None, command_handler=None) -> None:
+    def __init__(self, udid: str, friendly_name: str, device: dict = None, command_handler=None,
+                 client_timeout: float = 0.0) -> None:
         self.udid = udid[5:] if udid.startswith('uuid:') else udid
         self.friendly_name = friendly_name
         self.device = device or {}
         self.command_handler = command_handler
         self.event_sink = None
+
+        # The number of seconds of client inactivity after which the
+        # renderer stops playback instead of advancing to the next track.
+        # A value of 0 disables the check, so that the queue runs until the
+        # client stops it explicitly.
+        self.client_timeout = client_timeout
 
         self.transport_state = TRANSPORT_STOPPED
         self.transport_status = 'OK'
@@ -141,6 +148,7 @@ class MediaRenderer:
         self._volume_read_at = 0.0
         self._last_volume_change_at = 0.0
         self._volume_change_pending = None
+        self._client_activity_at = time.monotonic()
 
     #
     # State helpers
@@ -247,8 +255,8 @@ class MediaRenderer:
         """Remember the client that sent the last command
 
         The client is reported to the media server as the player of the
-        track, so that the now playing list shows the client that asked
-        for the track and not the skill that plays it.
+        track, so that the now playing list shows the client that asked for
+        the track and not the skill that plays it.
 
         :param str user_agent: The user agent of the request
         """
@@ -263,6 +271,24 @@ class MediaRenderer:
         if name != self.client_name:
             self.client_name = name
             logger.info('The client "%s" drives the renderer %s.', name, self.friendly_name)
+
+        self._client_activity_at = time.monotonic()
+
+    def client_is_inactive(self) -> bool:
+        """Return True when no client has sent a command for longer than the
+        configured timeout.
+
+        A value of 0 disables the check, so that the queue runs until the
+        client stops it explicitly.
+
+        :return: True when the client is considered gone
+        :rtype: bool
+        """
+
+        if not self.client_timeout:
+            return False
+
+        return time.monotonic() - self._client_activity_at > self.client_timeout
 
     #
     # The queue of the renderer
@@ -480,6 +506,20 @@ class MediaRenderer:
             return
 
         if self.transport_state != TRANSPORT_PLAYING:
+            return
+
+        # Stop the playback when the client that drives the renderer has not
+        # sent a command for longer than the configured timeout.  This keeps
+        # the queue from running away when the client is gone, for example
+        # when the DLNA client is closed or the phone is put down.
+        if self.client_is_inactive():
+            logger.info('The client of the renderer %s is inactive, stopping the playback.',
+                        self.friendly_name)
+            try:
+                self.stop()
+            except SoapError as error:
+                logger.warning('Could not stop the playback of the renderer %s: %s',
+                               self.friendly_name, error)
             return
 
         if not self._has_next():

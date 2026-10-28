@@ -56,6 +56,31 @@ class MediaQueue:
         accepted.
         """
 
+        self.pending_skip: str = ''
+        """The direction of a skip that is buffered while a track is starting
+
+        When a Next or Previous command arrives while a track is still
+        transitioning (the previous track has not reported PlaybackStarted
+        yet), the command is buffered here instead of being executed right
+        away.  Executing a skip during the transition corrupts the queue,
+        because the Amazon API has not yet chained the new track.  The
+        buffered skip is consumed by ``consume_pending_skip()`` once the
+        track has actually started playing, so that the user ends up on the
+        track they wanted, not on the one the skill sent first.
+
+        The value is ``'next'``, ``'previous'`` or an empty string when
+        there is no pending skip.
+        """
+
+        self.transitioning: bool = False
+        """True when a play directive has been sent but PlaybackStarted has
+        not yet been received.
+
+        While this flag is set, skip commands are buffered instead of being
+        forwarded to the Alexa device, so that rapid Next/Previous presses
+        do not flood the Amazon API with overlapping REPLACE_ALL directives.
+        """
+
     def is_playback_active(self) -> bool:
         """Method to return the state of the playback
 
@@ -76,6 +101,71 @@ class MediaQueue:
         """
 
         self.playback_active = active
+
+    def request_skip(self, direction: str) -> None:
+        """Buffer a skip request that arrived while a track is starting
+
+        When a Next or Previous command arrives while a track is still
+        transitioning (the previous track has not reported PlaybackStarted
+        yet), the command is buffered here instead of being executed right
+        away.  Executing a skip during the transition corrupts the queue,
+        because the Amazon API has not yet chained the new track.
+
+        Only the last skip request is kept, so that a user who rapidly
+        presses Next several times ends up on the track that was requested
+        last, not on the one that was requested first.  This also keeps the
+        number of API calls low when the client floods the skill with
+        skip commands.
+
+        :param str direction: ``'next'`` or ``'previous'``
+        :return: None
+        """
+
+        self.logger.debug('In request_skip() - buffering %s', direction)
+
+        if direction not in ('next', 'previous'):
+            self.logger.warning('In request_skip() - unknown direction %s', direction)
+            return
+
+        self.pending_skip = direction
+
+    def consume_pending_skip(self) -> str:
+        """Return and clear the buffered skip request
+
+        :return: ``'next'``, ``'previous'`` or an empty string when there is
+                 no pending skip
+        :rtype: str
+        """
+
+        self.logger.debug('In consume_pending_skip()')
+
+        direction = self.pending_skip
+        self.pending_skip = ''
+        return direction
+
+    def is_transitioning(self) -> bool:
+        """Return True when a play directive has been sent but PlaybackStarted
+        has not yet been received.
+
+        Added to allow access to the ``transitioning`` attribute while using
+        BaseManager for multi threading, as BaseManager does not allow access
+        to class attributes / properties.
+
+        :return: True when the queue is waiting for PlaybackStarted
+        :rtype: bool
+        """
+
+        return self.transitioning
+
+    def set_transitioning(self, transitioning: bool) -> None:
+        """Set the transitioning state of the queue
+
+        :param bool transitioning: True when a play directive has been sent
+                                  but PlaybackStarted has not yet been received
+        :return: None
+        """
+
+        self.transitioning = transitioning
 
     def set_first_previous_id(self, previous_id: str) -> None:
         """Set the previous_id of the first track in the queue
@@ -336,6 +426,7 @@ class MediaQueue:
         self.queue.clear()
         self.history.clear()
         self.buffer.clear()
+        self.pending_skip = ''
         self.current_track = Track()
         """Reset the current track so that a new play list starts from a
         clean state and no stale track is carried over into the history

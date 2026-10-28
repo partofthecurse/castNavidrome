@@ -345,6 +345,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_NAME_REGEX` | Regex device names must match | `^Echo` |
 | `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device refresh (default: only once at container start) | `true` |
 | `NAVI_ALEXA_RENDERER_DISABLE_BYEBYE` | Disable SSDP `ssdp:byebye` announcements on stop or when removing renderers | `false` |
+| `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Seconds of client inactivity after which playback stops (`0` = disabled) | `0` |
 | `NAVI_ALEXA_RENDERER_ONLY_ONLINE` | Expose only online devices | `no` |
 | `NAVI_ALEXA_RENDERER_LOG_LEVEL` | Log level | `INFO` |
 

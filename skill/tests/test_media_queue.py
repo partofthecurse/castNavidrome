@@ -115,3 +115,52 @@ class MediaQueueTests(unittest.TestCase):
         self.assertEqual(self.queue.get_current_track().id, 'track-2')
         self.assertEqual(len(self.queue.get_current_queue()), 0)
         self.assertEqual(len(self.queue.get_history()), 1)
+
+    def test_an_unknown_skip_direction_is_ignored(self):
+        self.queue.request_skip('forward')
+
+        self.assertEqual(self.queue.consume_pending_skip(), '')
+
+    def test_a_next_skip_can_be_requested_and_consumed(self):
+        self.queue.request_skip('next')
+
+        self.assertEqual(self.queue.consume_pending_skip(), 'next')
+        self.assertEqual(self.queue.consume_pending_skip(), '')
+
+    def test_a_previous_skip_can_be_requested_and_consumed(self):
+        self.queue.request_skip('previous')
+
+        self.assertEqual(self.queue.consume_pending_skip(), 'previous')
+        self.assertEqual(self.queue.consume_pending_skip(), '')
+
+    def test_only_the_last_skip_is_buffered(self):
+        # Rapid Next/Previous presses must not flood the Amazon API.  Only
+        # the last skip request is kept, so that the user ends up on the
+        # track they wanted last.
+        self.queue.request_skip('next')
+        self.queue.request_skip('next')
+        self.queue.request_skip('previous')
+
+        self.assertEqual(self.queue.consume_pending_skip(), 'previous')
+
+    def test_the_transitioning_state_can_be_read_and_changed(self):
+        self.assertFalse(self.queue.is_transitioning())
+
+        self.queue.set_transitioning(True)
+
+        self.assertTrue(self.queue.is_transitioning())
+
+    def test_the_transitioning_state_is_not_shared_between_queues(self):
+        first = MediaQueue()
+        second = MediaQueue()
+
+        first.set_transitioning(True)
+
+        self.assertFalse(second.is_transitioning())
+
+    def test_clear_resets_the_pending_skip(self):
+        self.queue.request_skip('next')
+
+        self.queue.clear()
+
+        self.assertEqual(self.queue.consume_pending_skip(), '')

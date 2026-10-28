@@ -144,6 +144,7 @@ OPTIONAL_CONFIG_VARS = {
     'NAVI_ALEXA_RENDERER_ANNOUNCE': 'explicit',
     'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL': '60',
     'NAVI_ALEXA_RENDERER_SSDP_MX': '0',
+    'NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT': '0',
 
     # Amazon OAuth (Login with Amazon).  These are only required when the OAuth
     # flow is enabled, i.e. when NAVI_AMAZON_CLIENT_ID is set.  When OAuth is
@@ -1429,6 +1430,29 @@ class PlaybackStartedHandler(AbstractRequestHandler):
         logger.info('Playback started')
 
         play_queue.set_playback_active(True)
+        play_queue.set_transitioning(False)
+
+        # Consume a skip that was buffered while the track was starting.
+        # The user pressed Next or Previous while the previous track was
+        # still transitioning, so the track that just started is not the one
+        # they wanted.  Execute the buffered skip now that the track has
+        # actually started, so that the Amazon API can chain the next
+        # directive correctly.
+        pending_skip = play_queue.consume_pending_skip()
+
+        if pending_skip == 'next':
+            if play_queue.get_queue_count() == 0:
+                logger.warning('The play queue is empty, the buffered next skip is dropped')
+            elif not is_radio_track(play_queue.get_current_track()):
+                logger.info('Executing the buffered next skip')
+                return self._skip(handler_input, play_queue, 'next')
+
+        elif pending_skip == 'previous':
+            if play_queue.get_history_count() == 0:
+                logger.warning('The play history is empty, the buffered previous skip is dropped')
+            elif not is_radio_track(play_queue.get_current_track()):
+                logger.info('Executing the buffered previous skip')
+                return self._skip(handler_input, play_queue, 'previous')
 
         current_track = play_queue.get_current_track()
 
@@ -1448,6 +1472,19 @@ class PlaybackStartedHandler(AbstractRequestHandler):
             logger.warning('Could not report the now playing track: %s', error)
 
         return handler_input.response_builder.response
+
+    @staticmethod
+    def _skip(handler_input: HandlerInput, play_queue, direction: str) -> Response:
+        """Execute a buffered skip now that the track has started."""
+
+        if direction == 'next':
+            track_details = play_queue.get_next_track()
+        else:
+            track_details = play_queue.get_previous_track()
+
+        track_details.offset = 0
+        play_queue.set_transitioning(True)
+        return controller.start_playback('play', None, None, track_details, handler_input)
 
 
 class PlaybackStoppedHandler(AbstractRequestHandler):
@@ -1621,10 +1658,23 @@ class NextPlaybackHandler(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
+        # When a track is still starting (the previous play directive has not
+        # reported PlaybackStarted yet), buffer the skip instead of sending
+        # another REPLACE_ALL directive.  The buffered skip is consumed once
+        # the track has actually started, so that the user ends up on the
+        # track they wanted and the Amazon API is not flooded with overlapping
+        # directives.
+        if play_queue.is_transitioning():
+            logger.info('A track is still starting, buffering the next skip')
+            play_queue.request_skip('next')
+            return handler_input.response_builder.response
+
         track_details = play_queue.get_next_track()
 
         # Set the offset to 0 as we are skipping we want to start at the beginning
         track_details.offset = 0
+
+        play_queue.set_transitioning(True)
 
         return controller.start_playback('play', None, None, track_details, handler_input)
 
@@ -1655,10 +1705,20 @@ class PreviousPlaybackHandler(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
+        # When a track is still starting, buffer the skip instead of sending
+        # another REPLACE_ALL directive.  The buffered skip is consumed once
+        # the track has actually started.
+        if play_queue.is_transitioning():
+            logger.info('A track is still starting, buffering the previous skip')
+            play_queue.request_skip('previous')
+            return handler_input.response_builder.response
+
         track_details = play_queue.get_previous_track()
 
         # Set the offset to 0 as we are skipping we want to start at the beginning
         track_details.offset = 0
+
+        play_queue.set_transitioning(True)
 
         return controller.start_playback('play', None, None, track_details, handler_input)
 

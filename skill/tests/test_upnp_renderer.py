@@ -389,6 +389,48 @@ class ClientTests(unittest.TestCase):
             self.assertEqual(call[1]['id'], '42')
 
 
+class ClientTimeoutTests(unittest.TestCase):
+    def setUp(self):
+        self.controller = FakeController(QUEUE)
+        device = {'name': 'Echo Dot', 'online': True}
+        self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', device, self.controller,
+                                      client_timeout=30.0)
+
+    def test_a_client_timeout_of_zero_disables_the_check(self):
+        device = {'name': 'Echo Dot', 'online': True}
+        renderer = MediaRenderer('uuid:1234', 'Echo Dot', device, FakeController(),
+                                 client_timeout=0.0)
+
+        self.assertFalse(renderer.client_is_inactive())
+
+    def test_a_fresh_client_is_not_inactive(self):
+        self.renderer.set_client('Jellybox/1.4.2 (Android)')
+
+        self.assertFalse(self.renderer.client_is_inactive())
+
+    def test_a_client_that_has_been_inactive_for_too_long_is_stopped(self):
+        # The client activity timestamp is set at construction time, so the
+        # renderer is already inactive without a client ever having sent a
+        # command.
+        self.renderer._client_activity_at = 0.0
+
+        self.assertTrue(self.renderer.client_is_inactive())
+
+    def test_the_advance_stops_when_the_client_is_inactive(self):
+        # The renderer plays the first track of the queue and the client has
+        # been inactive for longer than the timeout, so the auto-advance
+        # must stop the playback instead of playing the next track.
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.renderer._client_activity_at = 0.0
+
+        self.renderer._advance()
+
+        stop_calls = [call for call in self.controller.calls if call[0] == 'stop']
+        self.assertEqual(len(stop_calls), 1)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+
+
 class DidlBuilderTests(unittest.TestCase):
     def test_the_built_metadata_can_be_read_again(self):
         metadata = build_didl_metadata(QUEUE[0])

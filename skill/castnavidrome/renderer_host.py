@@ -35,6 +35,7 @@ DEFAULT_MIN_REFRESH_SECONDS = 10
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 DEFAULT_DISABLE_REFRESH = 'true'
 DEFAULT_SSDP_MX = 0.0
+DEFAULT_CLIENT_TIMEOUT = 0.0
 
 # The prefix of the renderer names is optional.  Without it the renderers
 # are named after the Alexa device, which is what most DLNA clients show
@@ -475,6 +476,13 @@ class RendererHost:
         self.announce_interval = int(self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL', '60'))
         self._announce_stop = threading.Event()
 
+        # The number of seconds of client inactivity after which the
+        # renderer stops playback instead of advancing to the next track.
+        # A value of 0 disables the check, so that the queue runs until the
+        # client stops it explicitly.
+        self.client_timeout = float(self.env.get('NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT',
+                                                 str(DEFAULT_CLIENT_TIMEOUT)))
+
     #
     # Setup
     #
@@ -636,13 +644,15 @@ class RendererHost:
 
             renderer = self.server.get_renderer(udid)
             if renderer is None:
-                renderer = MediaRenderer(udid, friendly_name, device, self.controller)
+                renderer = MediaRenderer(udid, friendly_name, device, self.controller,
+                                         client_timeout=self.client_timeout)
                 self.server.add_renderer(renderer)
                 logger.info('Added the media renderer "%s" (%s) for the Alexa device %s.',
                             friendly_name, udid, device.get('name'))
             else:
                 renderer.friendly_name = friendly_name
                 renderer.device = device
+                renderer.client_timeout = self.client_timeout
 
             renderers[udid] = renderer
 
