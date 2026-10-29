@@ -1,4 +1,4 @@
-<img src="/docs/images/cast_navidrome_logo.jpg" width="400" alt="castNavidrome logo">
+<img src="/docs/images/cast_navidrome_logo.jpg" width="400" align="center" alt="castNavidrome logo">
 
 # castNavidrome
 
