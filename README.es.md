@@ -1,10 +1,10 @@
-![castNavidrome logo](/docs/images/cast_navidrome_logo.jpg)
+<img src="/docs/images/cast_navidrome_logo.jpg" width="150" alt="castNavidrome logo">
 
 # castNavidrome
 
 castNavidrome convierte cada dispositivo Alexa en su propio MediaRenderer UPnP/DLNA, para que clientes DLNA (Symfonium, Supersonic, …) puedan enviar música a Echos individuales. También conecta dispositivos Alexa a un servidor multimedia compatible con la API Subsonic (por ejemplo Navidrome) para reproducción controlada por voz de tu propia colección de música.
 
-![symfonium screenshot](./docs/images/symfonium-screenshot.jpeg)
+<img src="./docs/images/symfonium-screenshot.jpeg" width="600" alt="symfonium screenshot">
 
 **castNavidrome es un fork de [AskNavidrome](https://github.com/rosskouk/asknavidrome)** (Ross Stewart, licencia MIT) con extensiones locales de varios forks comunitarios además de un MediaRenderer UPnP integrado para cada dispositivo Alexa. Consulta [Fork de AskNavidrome](#fork-de-asknavidrome) y [CREDITS.md](CREDITS.md).
 

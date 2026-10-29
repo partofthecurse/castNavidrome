@@ -1,10 +1,10 @@
-![castNavidrome logo](./docs/images/cast_navidrome_logo.jpg)
+<img src="./docs/images/cast_navidrome_logo.jpg" width="150" alt="castNavidrome logo">
 
 # castNavidrome
 
 castNavidrome turns every Alexa device into its own UPnP/DLNA media renderer, so DLNA clients (Symfonium, Supersonic, …) can cast music to individual Echoes. It also bridges Alexa devices to a Subsonic API compatible media server (for example Navidrome) for voice-controlled playback of your own music collection.
 
-![symfonium screenshot](./docs/images/symfonium-screenshot.jpeg)
+<img src="./docs/images/symfonium-screenshot.jpeg" width="600" alt="symfonium screenshot">
 
 **castNavidrome is a fork of [AskNavidrome](https://github.com/rosskouk/asknavidrome)** (Ross Stewart, MIT License) with local extensions from several community forks plus a built-in UPnP MediaRenderer for every Alexa device. See [Fork of AskNavidrome](#fork-of-asknavidrome) and [CREDITS.md](CREDITS.md).
 
