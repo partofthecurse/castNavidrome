@@ -17,6 +17,9 @@ state/
 ts/
 to-do.md
 docs/
+!docs/
+!docs/images/
+!docs/images/cast_navidrome_logo.jpg
 sphinx/_build/
 sphinx/_templates/
 *.md

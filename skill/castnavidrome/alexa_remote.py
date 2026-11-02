@@ -14,7 +14,6 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener
 
-from .amazon_login import AmazonSession, AmazonLoginError
 from .localization import alexa_command, normalize_locale
 
 logger = logging.getLogger(__name__)
@@ -112,31 +111,16 @@ def _strip_parentheses(text: str) -> str:
 
 class AlexaTextCommandClient:
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', timeout: int = 10,
-                 opener=None, session: AmazonSession = None) -> None:
+                 opener=None) -> None:
         self.domain = domain
         self.timeout = timeout
-        self.session = session
         self.opener = opener or build_opener()
-        if session:
-            self.cookies = dict(session.cookies) if session.cookies else {}
-            self.csrf = session.csrf
-            # Also load cookies from file if available (needed for Alexa Remote API)
-            if cookie_file and not self.cookies:
-                try:
-                    file_cookies = self._load_cookies(cookie_file)
-                    if file_cookies:
-                        self.cookies = file_cookies
-                        if not self.csrf:
-                            self.csrf = next((value for name, value in self.cookies.items() if name.lower() == 'csrf'), None)
-                except AlexaRemoteError:
-                    pass
-        else:
-            if cookie_file is None:
-                raise AlexaRemoteError('No Alexa cookie file or Amazon session configured.')
-            self.cookies = self._load_cookies(cookie_file)
-            self.csrf = next((value for name, value in self.cookies.items() if name.lower() == 'csrf'), None)
-            if not self.csrf:
-                raise AlexaRemoteError('The Alexa cookie file has no csrf cookie.')
+        if cookie_file is None:
+            raise AlexaRemoteError('No Alexa cookie file configured.')
+        self.cookies = self._load_cookies(cookie_file)
+        self.csrf = next((value for name, value in self.cookies.items() if name.lower() == 'csrf'), None)
+        if not self.csrf:
+            raise AlexaRemoteError('The Alexa cookie file has no csrf cookie.')
         # Dynamically resolved Alexa API host (from /api/endpoints).  Falls back
         # to ``alexa.{domain}`` when unset.
         self.api_host: str | None = None
@@ -191,20 +175,6 @@ class AlexaTextCommandClient:
             headers['Content-Type'] = 'application/json; charset=utf-8'
 
         request = Request(url, data=data, headers=headers)
-        # Use cookies directly (opener) if cookies are available (Alexa Remote API requires cookies)
-        if self.cookies:
-            try:
-                with self.opener.open(request, timeout=self.timeout) as response:
-                    return response.read()
-            except HTTPError as error:
-                raise AlexaRemoteError(f'Alexa returned HTTP {error.code}.', status_code=error.code) from None
-            except URLError:
-                raise AlexaRemoteError('Could not connect to the Alexa service.') from None
-        if self.session is not None:
-            try:
-                return self.session.request(url, data=data, headers=headers)
-            except AmazonLoginError as error:
-                raise AlexaRemoteError(str(error)) from error
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 return response.read()

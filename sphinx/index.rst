@@ -446,7 +446,7 @@ multicast port 1900/udp:
            network_mode: host
            command: ['python3', '-m', 'castnavidrome.renderer_host']
            environment:
-               - 'NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies'
+               - 'NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies'
                - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
                - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}'
                - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-de-DE}'

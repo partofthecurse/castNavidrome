@@ -1,6 +1,6 @@
 FROM alpine:3.19 AS build
-LABEL maintainer="Ross Stewart <rosskouk@gmail.com>"
-LABEL org.opencontainers.image.source=https://github.com/rosskouk/asknavidrome
+LABEL maintainer="part0"
+LABEL org.opencontainers.image.source=https://github.com/partofthecurse/castnavidrome
 
 RUN apk add --no-cache python3 py3-pip build-base python3-dev libffi-dev openssl-dev
 
@@ -9,14 +9,18 @@ WORKDIR /opt
 RUN python3 -m venv env
 
 WORKDIR /opt/castnavidrome
-COPY skill/ .
+COPY skill/requirements-docker.txt .
 
-RUN source ../env/bin/activate && pip --no-cache-dir install wheel && pip --no-cache-dir install -r requirements-docker.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    source ../env/bin/activate && pip install wheel && pip install -r requirements-docker.txt
+
+COPY skill/ .
+COPY docs/images/cast_navidrome_logo.jpg ./docs/images/cast_navidrome_logo.jpg
 
 
 FROM alpine:3.19
-LABEL maintainer="Ross Stewart <rosskouk@gmail.com>"
-LABEL org.opencontainers.image.source=https://github.com/rosskouk/asknavidrome
+LABEL maintainer="part0"
+LABEL org.opencontainers.image.source=https://github.com/partofthecurse/castnavidrome
 
 RUN apk add --no-cache python3
 

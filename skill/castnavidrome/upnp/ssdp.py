@@ -27,6 +27,7 @@ SSDP_MULTICAST_PORT = 1900
 SSDP_PORT = 1900
 SSDP_ALL = 'ssdp:all'
 SSDP_SEARCH_TARGET = 'ssdp:all'
+SSDP_ROOT_DEVICE = 'upnp:rootdevice'
 SSDP_MAX_AGE = 1800
 SERVER_HEADER = 'Linux/5.0 UPnP/1.1 castNavidrome/1.0'
 
@@ -141,28 +142,20 @@ class SsdpServer:
         sockets = []
 
         # --- IPv4 socket (239.255.255.250) ---
+        ipv4_addresses = self._local_addresses()
         try:
             v4 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             v4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             v4.bind(('', self.port))
             v4.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
             v4.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
-            group_v4 = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
-            joined = False
-            for address in self._local_addresses():
-                if '.' not in address:
-                    continue
+            if not self._set_ipv4_multicast_interface(v4, self.advertise_host, ipv4_addresses):
+                logger.warning('The advertise host is not a usable IPv4 address for SSDP multicast.')
+            if not self._join_ipv4_multicast(v4, ipv4_addresses):
                 try:
                     v4.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                                  group_v4 + socket.inet_aton(address))
-                    joined = True
-                    break
-                except OSError:
-                    pass
-            if not joined:
-                try:
-                    v4.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                                  group_v4 + b'\x00\x00\x00\x00')
+                                  socket.inet_aton(SSDP_MULTICAST_ADDRESS) + b'\x00\x00\x00\x00')
+                    logger.warning('Joined the IPv4 SSDP multicast group on the wildcard interface.')
                 except OSError as error:
                     logger.warning('Could not join the IPv4 SSDP multicast group: %s', error)
             sockets.append(v4)
@@ -204,6 +197,38 @@ class SsdpServer:
             raise OSError('Could not create any SSDP socket')
 
         return sockets
+
+    @staticmethod
+    def _set_ipv4_multicast_interface(sock, advertise_host, addresses) -> bool:
+        if advertise_host not in addresses:
+            return False
+        try:
+            sock.setsockopt(
+                socket.IPPROTO_IP,
+                socket.IP_MULTICAST_IF,
+                socket.inet_aton(advertise_host),
+            )
+        except OSError:
+            return False
+        return True
+
+    @staticmethod
+    def _join_ipv4_multicast(sock, addresses) -> bool:
+        group = socket.inet_aton(SSDP_MULTICAST_ADDRESS)
+        joined = False
+        for address in dict.fromkeys(addresses):
+            if '.' not in address:
+                continue
+            try:
+                sock.setsockopt(
+                    socket.IPPROTO_IP,
+                    socket.IP_ADD_MEMBERSHIP,
+                    group + socket.inet_aton(address),
+                )
+                joined = True
+            except OSError:
+                continue
+        return joined
 
     @staticmethod
     def _local_addresses() -> list:
@@ -339,7 +364,7 @@ class SsdpServer:
     def _matches(self, search_target: str, udid: str) -> bool:
         target = search_target.lower()
 
-        if target in (SSDP_ALL, SSDP_SEARCH_TARGET):
+        if target in (SSDP_ALL, SSDP_SEARCH_TARGET, SSDP_ROOT_DEVICE):
             return True
 
         if target == f'uuid:{udid.lower()}':
@@ -369,6 +394,9 @@ class SsdpServer:
 
         if target == SSDP_SEARCH_TARGET:
             return [SSDP_SEARCH_TARGET] + list(self.search_targets)
+
+        if target == SSDP_ROOT_DEVICE:
+            return [SSDP_ROOT_DEVICE] + list(self.search_targets)
 
         return [search_target]
 

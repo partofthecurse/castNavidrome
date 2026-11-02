@@ -84,7 +84,7 @@ services:
       - NAVI_USER=${NAVI_USER}
       - NAVI_PASS=${NAVI_PASS}
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
@@ -110,7 +110,7 @@ services:
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
     environment:
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
       - ./state:/var/lib/castnavidrome
@@ -251,7 +251,7 @@ services:
       - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID:-}
       - NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET:-}
       - NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI:-}
@@ -313,7 +313,7 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_ALEXA_DOMAIN` | Amazon-Domain | `amazon.com` |
 | `NAVI_ALEXA_LOCALE` | Locale der Skill-Antworten und Sprachbefehle | `en-US` |
 | `NAVI_ALEXA_SKILL_NAME` | Invocation-Name des Skills | `castnavidrome` |
-| `NAVI_ALEXA_COOKIE_FILE` | Pfad zu einer Alexa-Cookie-Datei (Cookie-Fallback) | `/run/secrets/alexa.cookies` |
+| `NAVI_ALEXA_COOKIE_FILE` | Gemeinsamer Pfad zur persistenten Alexa-Cookie-Datei | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_AMAZON_CLIENT_ID` / `NAVI_AMAZON_CLIENT_SECRET` / `NAVI_AMAZON_REDIRECT_URI` | Amazon OAuth 2.0 / Login with Amazon | `amzn1.application-oa2-client.xxx` / `Geheimnis` / `https://...` |
 | `NAVI_AMAZON_SESSION_FILE` | Gespeicherte Amazon-Session-Cookies | `/var/lib/castnavidrome/amazon_session.json` |
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio-Stream-URLs | — |

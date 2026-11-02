@@ -1,9 +1,12 @@
+import os
+import signal
 import tempfile
 import threading
 import time
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 from castnavidrome.alexa_remote import AlexaRemoteError
 from castnavidrome.renderer_host import AlexaRendererController, RendererHost
@@ -123,6 +126,7 @@ class RendererHostTests(unittest.TestCase):
         self.assertEqual(len(self.host.server.renderers()), 1)
 
     def test_parallel_discovery_requests_only_refresh_once(self):
+        self.host.disable_refresh = False
         calls = []
 
         def list_devices():
@@ -144,6 +148,14 @@ class RendererHostTests(unittest.TestCase):
         time.sleep(0.5)
 
         self.assertEqual(len(calls), 1)
+
+    def test_ssdp_search_does_not_refresh_in_start_only_mode(self):
+        self.host.disable_refresh = True
+
+        with patch('castnavidrome.renderer_host.threading.Thread') as thread_factory:
+            self.host._on_discovery_request()
+
+        thread_factory.assert_not_called()
 
     def test_the_device_description_is_served(self):
         self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
@@ -183,6 +195,45 @@ class RendererHostTests(unittest.TestCase):
         host = RendererHost(env=self.env)
 
         self.assertFalse(host.disable_refresh)
+
+    def test_cookie_file_change_requests_container_restart(self):
+        cookie_file = Path(self.temp_dir.name) / 'alexa.cookies'
+        cookie_file.write_text('csrf=old\n', encoding='utf-8')
+        self.env['NAVI_ALEXA_COOKIE_FILE'] = str(cookie_file)
+        host = RendererHost(env=self.env)
+
+        cookie_file.write_text('csrf=new\n', encoding='utf-8')
+        changed_mtime = host._cookie_file_mtime + 2
+        os.utime(cookie_file, (changed_mtime, changed_mtime))
+
+        with patch('castnavidrome.renderer_host.os.kill') as kill_process:
+            host._maybe_restart_on_cookie_change()
+
+        kill_process.assert_called_once_with(os.getpid(), signal.SIGTERM)
+
+    def test_missing_configured_cookie_path_uses_mounted_cookie_file(self):
+        configured = Path(self.temp_dir.name) / 'missing.cookies'
+        mounted = Path(self.temp_dir.name) / 'mounted.cookies'
+        mounted.write_text('csrf=mounted\n', encoding='utf-8')
+        self.env['NAVI_ALEXA_COOKIE_FILE'] = str(configured)
+
+        with patch('castnavidrome.amazon_login.DEFAULT_COOKIE_FILE', mounted):
+            host = RendererHost(env=self.env)
+
+        self.assertEqual(host.cookie_file, str(configured))
+        self.assertEqual(host.amazon_session.session_file, configured)
+        self.assertEqual(host.controller.cookie_file, str(configured))
+        self.assertEqual(configured.read_text(encoding='utf-8'), 'csrf=mounted\n')
+
+    def test_cookie_watcher_runs_when_device_refresh_is_disabled(self):
+        self.env['NAVI_ALEXA_RENDERER_DISABLE_REFRESH'] = 'true'
+        host = RendererHost(env=self.env)
+
+        with patch.object(host._stop_event, 'wait', side_effect=[False, True]):
+            with patch.object(host, '_maybe_restart_on_cookie_change') as check_cookie:
+                host._cookie_watch_loop()
+
+        check_cookie.assert_called_once()
 
 
 class FakeAlexaClient:

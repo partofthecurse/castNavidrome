@@ -8,17 +8,24 @@ renderer host.
 """
 
 from datetime import datetime
+import atexit
 import hmac  # cryptographic signatures for API key verification
-from flask import Flask, abort, jsonify, redirect, render_template, request  # Flask micro web framework
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request  # Flask micro web framework
 from flask import Response as FlaskResponse  # Flask response type, separate from the ask SDK response
 import logging
 from multiprocessing import Process
 import os
+import re
 import random
 import signal
 import sys
 import threading
 import time
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+from http.cookies import SimpleCookie
 
 from ask_sdk_core.skill_builder import SkillBuilder  # builds the Alexa skill
 from ask_sdk_core.dispatch_components import AbstractRequestHandler, AbstractRequestInterceptor, AbstractResponseInterceptor
@@ -29,7 +36,6 @@ from flask_ask_sdk.skill_adapter import SkillAdapter  # bridges the ask SDK skil
 
 import castnavidrome.subsonic_api as api  # talks to the Navidrome media server
 from castnavidrome.alexa_remote import AlexaRemoteError, AlexaTextCommandClient, build_control_text, find_devices_by_name
-from castnavidrome.amazon_oauth import AmazonOAuthSession, AmazonOAuthError, AmazonOAuthCredentialsMissing
 from castnavidrome.renderer_registry import RendererRegistry
 import castnavidrome.controller as controller
 import castnavidrome.queue_filler as queue_filler
@@ -39,6 +45,8 @@ from castnavidrome.search import SearchResolver
 from castnavidrome.track import Track
 from castnavidrome.playlist_names import build_playlist_names
 from castnavidrome.utils import get_resolved_slot_value, sanitise_speech_output
+from castnavidrome.cookie_capture_proxy import AlexaCookieCaptureProxy
+from castnavidrome.amazon_login import resolve_cookie_file
 from castnavidrome.localization import (
     HELP_OVERVIEW_KEY,
     HELP_TOPIC_ALIASES,
@@ -102,9 +110,6 @@ REQUIRED_SENSITIVE_VARS = {
 SENSITIVE_CONFIG_VARS = {
     'NAVI_PASS',
     'NAVI_ALEXA_API_KEY',
-    'NAVI_AMAZON_CLIENT_ID',
-    'NAVI_AMAZON_CLIENT_SECRET',
-    'NAVI_AMAZON_REDIRECT_URI',
     'TS_AUTHKEY',
 }
 
@@ -124,7 +129,7 @@ OPTIONAL_CONFIG_VARS = {
     # Alexa skill
     'NAVI_ALEXA_DOMAIN': 'amazon.com',
     'NAVI_ALEXA_LOCALE': 'en-US',
-    'NAVI_ALEXA_COOKIE_FILE': '/run/secrets/alexa.cookies',
+    'NAVI_ALEXA_COOKIE_FILE': '/var/lib/castnavidrome/alexa.cookies',
 
     # Alexa renderer
     'NAVI_ALEXA_RENDERER_LOG_LEVEL': 'INFO',
@@ -145,17 +150,6 @@ OPTIONAL_CONFIG_VARS = {
     'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL': '720',
     'NAVI_ALEXA_RENDERER_SSDP_MX': '0',
     'NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT': '0',
-
-    # Amazon OAuth (Login with Amazon).  These are only required when the OAuth
-    # flow is enabled, i.e. when NAVI_AMAZON_CLIENT_ID is set.  When OAuth is
-    # disabled the Alexa Remote API is used with a static cookie file instead.
-    'NAVI_AMAZON_CLIENT_ID': '',
-    'NAVI_AMAZON_CLIENT_SECRET': '',
-    'NAVI_AMAZON_REDIRECT_URI': '',
-    'NAVI_AMAZON_TOKEN_FILE': '/var/lib/castnavidrome/amazon_oauth_token.json',
-    'NAVI_AMAZON_SCOPES': 'profile',
-    'NAVI_AMAZON_SESSION_FILE': '/var/lib/castnavidrome/amazon_session.json',
-    'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE': '',
 
     # Tailscale
     'TS_STATE_DIR': '/var/lib/tailscale',
@@ -2182,6 +2176,12 @@ sa.register(app=app, route='/')
 def health_check():
     return 'castNavidrome is running', 200
 
+@app.route('/api/alexa/login', methods=['GET'])
+def alexa_login_redirect():
+    """Leitet zum Cookie-Capture-Login (wie alexa_media_player)."""
+    return redirect('/start', code=302)
+
+
 #alexa bridge endpoints
 def authorize_alexa_api():
     expected_key = os.getenv('NAVI_ALEXA_API_KEY')
@@ -2193,6 +2193,25 @@ def authorize_alexa_api():
         return jsonify({'error': 'Unauthorized.'}), 401
 
     return None
+
+
+def require_capture_auth():
+    """Basic Auth für die Cookie-Capture-UI.
+
+    Das Passwort kommt aus NAVI_ALEXA_CAPTURE_PASSWORD (env oder Docker Secret).
+    Der Benutzername ist beliebig.
+    """
+    expected_password = os.getenv('NAVI_ALEXA_CAPTURE_PASSWORD')
+    if not expected_password:
+        return jsonify({'error': 'NAVI_ALEXA_CAPTURE_PASSWORD is not configured.'}), 503
+
+    auth = request.authorization
+    if auth and hmac.compare_digest(auth.password or '', expected_password):
+        return None
+
+    response = make_response(jsonify({'error': 'Unauthorized.'}), 401)
+    response.headers['WWW-Authenticate'] = 'Basic realm="Alexa Cookie Capture"'
+    return response
 
 
 def _schedule_container_restart(delay: float = 2.0) -> None:
@@ -2215,81 +2234,266 @@ def _schedule_container_restart(delay: float = 2.0) -> None:
 
 def get_alexa_remote_client():
     domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
-    if os.getenv('NAVI_AMAZON_CLIENT_ID'):
-        # Authenticate with OAuth 2.0 (Login with Amazon) access/refresh tokens.
-        session = AmazonOAuthSession(domain=domain)
-        # Still load cookies from file for Alexa Remote API (which requires cookies)
-        cookie_file = os.getenv('NAVI_ALEXA_COOKIE_FILE')
-        return AlexaTextCommandClient(cookie_file, domain=domain, session=session)
-
-    cookie_file = os.getenv('NAVI_ALEXA_COOKIE_FILE')
-    if not cookie_file:
-        raise AlexaRemoteError('NAVI_ALEXA_COOKIE_FILE is not configured.')
+    cookie_file = resolve_cookie_file(os.getenv('NAVI_ALEXA_COOKIE_FILE'))
 
     return AlexaTextCommandClient(
-        cookie_file,
+        str(cookie_file),
         domain=domain,
     )
 
 
-# Validate OAuth session at startup
-if os.getenv('NAVI_AMAZON_CLIENT_ID'):
-    _oauth_session = AmazonOAuthSession(domain=os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com'))
-    if not _oauth_session.is_valid():
-        logger.warning(
-            'No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login '
-            'to authenticate before using the Alexa API.'
-        )
+@app.route('/api/alexa/logo')
+def alexa_logo():
+    """Serve the castNavidrome logo image."""
+    # Try multiple possible locations for the logo inside the container
+    candidates = [
+        Path(__file__).resolve().parent.parent / 'docs' / 'images' / 'cast_navidrome_logo.jpg',
+        Path('/opt/castnavidrome/docs/images/cast_navidrome_logo.jpg'),
+        Path('/docker/castNavidrome/docs/images/cast_navidrome_logo.jpg'),
+        Path('/app/docs/images/cast_navidrome_logo.jpg'),
+    ]
+    for logo_path in candidates:
+        if logo_path.is_file():
+            return FlaskResponse(logo_path.read_bytes(), mimetype='image/jpeg')
+    return jsonify({'error': 'Logo not found.'}), 404
 
 
-@app.route('/api/alexa/amazon/login')
-def amazon_login():
-    """Start the OAuth 2.0 authorization code flow with Login with Amazon.
+@app.route('/api/alexa/cookie/proxy/status', methods=['GET'])
+def alexa_cookie_status():
+    """Gibt den Status der Cookie-Authentifizierung zurück."""
+    auth_error = require_capture_auth()
+    if auth_error:
+        return auth_error
 
-    Redirects the end user to Amazon so they can sign in and consent.  A
-    CSRF state value is stored in a cookie and validated in the callback.
+    cookie_file = resolve_cookie_file(os.getenv('NAVI_ALEXA_COOKIE_FILE'))
+    proxy_cookies = _get_proxy().cookies()
+    has_cookies = False
+    cookie_count = 0
+    if cookie_file:
+        path_obj = Path(cookie_file)
+        if path_obj.is_file():
+            try:
+                from castnavidrome.alexa_remote import AlexaTextCommandClient
+                tmp = AlexaTextCommandClient(str(cookie_file))
+                has_cookies = bool(tmp.cookies) and bool(tmp.csrf)
+                cookie_count = len(tmp.cookies)
+            except Exception:
+                pass
+
+    return jsonify({
+        'login_success': has_cookies,
+        'cookies_captured': cookie_count,
+        'has_csrf': has_cookies,
+        'proxy_cookie_count': len(proxy_cookies),
+        'proxy_has_csrf': any(name.lower() == 'csrf' for name in proxy_cookies),
+        'cookie_file': str(cookie_file),
+    })
+
+
+# Einfacher Cookie-Capture-Proxy für den initialen Browser-Login
+_proxy = AlexaCookieCaptureProxy()
+_proxy_lock = threading.Lock()
+
+
+def _close_cookie_capture_proxy():
+    if _proxy is not None:
+        _proxy.close()
+
+
+atexit.register(_close_cookie_capture_proxy)
+
+
+def _get_proxy():
+    global _proxy
+    with _proxy_lock:
+        if _proxy is None:
+            _proxy = AlexaCookieCaptureProxy()
+        return _proxy
+
+
+def _capture_proxy_origin():
+    configured_origin = os.getenv('NAVI_ALEXA_CAPTURE_PROXY_HOST', '').strip()
+    if configured_origin:
+        return configured_origin.rstrip('/')
+
+    scheme = request.headers.get('X-Forwarded-Proto', request.scheme).split(',')[0].strip()
+    host = request.headers.get('X-Forwarded-Host', request.host).split(',')[0].strip()
+    if scheme == 'http':
+        from urllib.parse import urlsplit
+        parsed_host = urlsplit(f'{scheme}://{host}')
+        if parsed_host.port in (None, 5000):
+            host = f'{parsed_host.hostname}:3456'
+    return f'{scheme}://{host}'
+
+
+@app.route('/api/alexa/cookie/proxy', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/alexa/cookie/proxy/', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/alexa/cookie/proxy/<path:path>', methods=['GET', 'POST', 'OPTIONS'])
+def alexa_cookie_proxy(path=''):
+    """Redirect browser logins to alexapy's native capture proxy."""
+    auth_error = require_capture_auth()
+    if auth_error:
+        return auth_error
+
+    proxy_url = _get_proxy().ensure_started(_capture_proxy_origin())
+    if path:
+        proxy_url = f'{proxy_url.rstrip("/")}/{path.lstrip("/")}'
+    return redirect(proxy_url, code=302)
+
+
+@app.route('/api/alexa/cookie/save', methods=['POST'])
+def alexa_cookie_save():
+    """Schreibt die erfassten Proxy-Cookies in NAVI_ALEXA_COOKIE_FILE."""
+    auth_error = require_capture_auth()
+    if auth_error:
+        return auth_error
+
+    cookie_file = resolve_cookie_file(os.getenv('NAVI_ALEXA_COOKIE_FILE'))
+
+    proxy = _get_proxy()
+    count = proxy.save_to_file(cookie_file)
+
+    return jsonify({
+        'saved': count,
+        'cookie_file': str(cookie_file),
+        'has_csrf': proxy.has_csrf(),
+    })
+
+
+@app.route('/start', methods=['GET', 'POST'])
+@app.route('/api/alexa/cookie/capture', methods=['GET', 'POST'])
+def alexa_cookie_capture():
+    """Browser cookie login with automatic validation and persistence.
+
+    GET: Shows the login status and proxy URL.
+    POST: Manually saves captured cookies as a fallback.
     """
+    auth_error = require_capture_auth()
+    if auth_error:
+        return auth_error
+
     domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
-    session = AmazonOAuthSession(domain=domain)
-    try:
-        auth_url, state = session.authorization_url()
-    except AmazonOAuthCredentialsMissing as error:
-        return jsonify({'error': str(error)}), 503
-    print(f'DEBUG amazon_login: auth_url={auth_url}', flush=True)
-    response = redirect(auth_url)
-    response.set_cookie('amazon_oauth_state', state, max_age=600,
-                        httponly=True, samesite='Lax')
-    return response
+    cookie_file = resolve_cookie_file(os.getenv('NAVI_ALEXA_COOKIE_FILE'))
+
+    locale = os.getenv('NAVI_ALEXA_LOCALE', 'en-US')
+    is_de = locale.startswith('de')
+    lang = 'de' if is_de else 'en'
+
+    proxy = _get_proxy()
+    proxy_url = proxy.ensure_started(_capture_proxy_origin())
+    proxy_cookies = proxy.cookies()
+
+    # Status aus der Cookie-Datei ableiten
+    has_cookies = False
+    cookie_count = 0
+    login_error = None
+    path_obj = Path(cookie_file)
+    if path_obj.is_file():
+        try:
+            from castnavidrome.alexa_remote import AlexaTextCommandClient
+            tmp = AlexaTextCommandClient(str(cookie_file))
+            has_cookies = bool(tmp.cookies) and bool(tmp.csrf)
+            cookie_count = len(tmp.cookies)
+        except Exception as error:
+            has_cookies = False
+            login_error = str(error)
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'save')
+        if action == 'save':
+            # Cookies aus dem Proxy in die Datei schreiben
+            count = proxy.save_to_file(cookie_file)
+            cookie_count = count
+            has_cookies = count > 0 and proxy.has_csrf()
+            login_error = None
+    t = {
+        'lang': lang,
+        'title': 'castNavidrome • Alexa Cookie Login' if not is_de else 'castNavidrome • Alexa Cookie Login',
+        'brand': 'castNavidrome',
+        'login_success': has_cookies,
+        'cookies_captured': cookie_count,
+        'has_csrf': has_cookies,
+        'login_error': login_error,
+        'cookie_file': cookie_file,
+        'domain': domain,
+        'proxy_url': proxy_url,
+        'proxy_cookie_count': len(proxy_cookies),
+        'proxy_has_csrf': proxy.has_csrf(),
+        'check_endpoint': 'API-Endpunkt prüfen' if not is_de else 'API-Endpunkt prüfen',
+        'cookie_file_label': 'Cookie-Datei' if not is_de else 'Cookie-Datei',
+        'domain_label': 'Domain' if not is_de else 'Domain',
+        'cookies_found': 'Cookies erfasst: {count}' if not is_de else 'Cookies erfasst: {count}',
+        'no_cookies': 'Noch keine Cookies erfasst.' if not is_de else 'Noch keine Cookies erfasst.',
+        'login_waiting': 'Öffnen Sie die Proxy-URL im Browser und loggen Sie sich bei Amazon ein.' if not is_de else 'Öffnen Sie die Proxy-URL im Browser und loggen Sie sich bei Amazon ein.',
+        'login_done': 'Login erfolgreich! Cookies gespeichert.' if not is_de else 'Login erfolgreich! Cookies gespeichert.',
+        'save_cookies': 'Cookies erneut manuell speichern' if not is_de else 'Cookies erneut manuell speichern',
+        'footer': 'castNavidrome Alexa Renderer • Cookie Login',
+    }
+
+    return render_template(
+        'login.html',
+        t=t,
+        domain=domain,
+        cookie_file=cookie_file,
+        login_success=has_cookies,
+        cookies_captured=cookie_count,
+        has_csrf=has_cookies,
+        login_error=login_error,
+        proxy_url=proxy_url,
+        proxy_cookie_count=len(proxy_cookies),
+        proxy_has_csrf=proxy.has_csrf(),
+    )
 
 
-@app.route('/api/alexa/amazon/callback')
-def amazon_callback():
-    """OAuth 2.0 callback: exchange the authorization code for tokens."""
-    code = request.args.get('code')
-    state = request.args.get('state')
-    error = request.args.get('error')
-    if error:
-        return jsonify({'error': f'Amazon authorization declined: {error}'}), 400
-    if not code or not state:
-        return jsonify({'error': 'Missing authorization code or state.'}), 400
-    expected_state = request.cookies.get('amazon_oauth_state')
-    if not expected_state or not hmac.compare_digest(state, expected_state):
-        return jsonify({'error': 'Invalid OAuth state parameter.'}), 400
-    domain = os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com')
-    session = AmazonOAuthSession(domain=domain)
+@app.route('/api/alexa/endpoints', methods=['GET'])
+def alexa_endpoints():
+    """Query the Alexa /api/endpoints endpoint to confirm the correct API host.
+
+    Returns the resolved Alexa API host, which the client uses for all further
+    Alexa Remote API calls.
+    """
+    authorization_error = authorize_alexa_api()
+    if authorization_error:
+        return authorization_error
+
     try:
-        session.exchange_code_for_tokens(code)
-    except AmazonOAuthError as error:
-        return jsonify({'error': str(error)}), 400
-    response = jsonify({'status': 'ok',
-                        'message': 'Amazon OAuth tokens stored. The Alexa API is now authenticated.'})
-    response.delete_cookie('amazon_oauth_state')
-    # Automatischer Container-Neustart nach erfolgreichem Token-Save, damit
-    # der neue Token sofort aktiv wird. Aktiviert durch
-    # NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=true (Docker Compose restart: unless-stopped).
-    if os.getenv('NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE', '').lower() in ('1', 'true', 'yes', 'on'):
-        _schedule_container_restart()
-    return response
+        client = get_alexa_remote_client()
+        data = client.get_endpoints()
+    except AlexaRemoteError as error:
+        logger.warning('Alexa endpoints lookup failed: %s', error)
+        return jsonify({'error': str(error)}), 502
+
+    if data is None:
+        return jsonify({'error': 'Alexa endpoints returned no data.'}), 502
+
+    return jsonify({
+        'api_host': client.api_host,
+        'domain': os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com'),
+        'response': data,
+    })
+
+
+@app.route('/api/alexa/cookie/endpoints', methods=['GET'])
+def alexa_cookie_endpoints():
+    authorization_error = require_capture_auth()
+    if authorization_error:
+        return authorization_error
+
+    try:
+        client = get_alexa_remote_client()
+        data = client.get_endpoints()
+    except AlexaRemoteError as error:
+        logger.warning('Alexa endpoints lookup from capture portal failed: %s', error)
+        return jsonify({'error': str(error)}), 502
+
+    if data is None:
+        return jsonify({'error': 'Alexa endpoints returned no data.'}), 502
+
+    return jsonify({
+        'api_host': client.api_host,
+        'domain': os.getenv('NAVI_ALEXA_DOMAIN', 'amazon.com'),
+        'response': data,
+    })
 
 
 @app.route('/api/playback/status', methods=['GET'])

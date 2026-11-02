@@ -86,10 +86,14 @@ services:
       - NAVI_USER=${NAVI_USER}
       - NAVI_PASS=${NAVI_PASS}
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
+      - NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}
+      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
+      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
+      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
       - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     logging:
       driver: "json-file"
@@ -112,9 +116,13 @@ services:
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
     environment:
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
+      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
+      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
+      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
+      - NAVI_ALEXA_RENDERER_AUTO_RESTART=true
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -262,13 +270,13 @@ services:
       - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID:-}
       - NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET:-}
       - NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI:-}
       - NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -324,7 +332,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_DOMAIN` | Amazon domain | `amazon.com` |
 | `NAVI_ALEXA_LOCALE` | Locale of the skill answers and voice commands | `en-US` |
 | `NAVI_ALEXA_SKILL_NAME` | Invocation name of the skill | `castnavidrome` |
-| `NAVI_ALEXA_COOKIE_FILE` | Path to an Alexa cookie file (cookie fallback) | `/run/secrets/alexa.cookies` |
+| `NAVI_ALEXA_COOKIE_FILE` | Shared path to the persistent Alexa cookie file | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_AMAZON_CLIENT_ID` / `NAVI_AMAZON_CLIENT_SECRET` / `NAVI_AMAZON_REDIRECT_URI` | Amazon OAuth 2.0 / Login with Amazon | `amzn1.application-oa2-client.xxx` / `secret` / `https://...` |
 | `NAVI_AMAZON_SESSION_FILE` | Persisted Amazon session cookies | `/var/lib/castnavidrome/amazon_session.json` |
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio stream URLs | — |
@@ -344,7 +352,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Prefix for renderer names | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Allowed device types (comma separated) | `ECHO,FIRE_TV` |
 | `NAVI_ALEXA_RENDERER_NAME_REGEX` | Regex device names must match | `^Echo` |
-| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device refresh (default: only once at container start) | `true` |
+| `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device-list refresh; cookie-change watching remains active | `true` |
 | `NAVI_ALEXA_RENDERER_DISABLE_BYEBYE` | Disable SSDP `ssdp:byebye` announcements on stop or when removing renderers | `false` |
 | `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Seconds of client inactivity after which playback stops (`0` = disabled) | `0` |
 | `NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE` | Disable periodic SSDP announcements (`true`/`false`) | `false` |
@@ -460,6 +468,12 @@ If the OAuth login does not work (e.g. due to CAPTCHA or additional verification
 
 If something goes wrong, you can still fall back to the manual cookie file below.
 
+### Browser cookie login
+
+Set `NAVI_ALEXA_CAPTURE_PASSWORD` and open `/start` in a browser. After a successful Amazon login, alexapy validates the session and automatically writes the cookies atomically to `NAVI_ALEXA_COOKIE_FILE`. The renderer watches that file and Docker restarts its container so it loads the new session. The Alexa device list is fetched at container startup only; restart the renderer container to discover a newly added device. `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS`, and `NAVI_AMAZON_TOTP_SECRET` enable automatic form filling; the browser can still complete verification manually. The previous `/api/alexa/cookie/capture` URL remains available as an alias.
+
+The cookie file must be mounted read-write for automatic capture and renewal. The portal's manual save and session-check actions remain available as fallbacks.
+
 ### Alexa Cookie File (manual fallback)
 
 If you prefer not to use the automatic Amazon login (or it fails because of CAPTCHA or an extra verification step), you can provide an existing Alexa session cookie file instead.
@@ -468,12 +482,12 @@ If you prefer not to use the automatic Amazon login (or it fails because of CAPT
 2. Open the Developer Tools (F12), go to **Application → Cookies** and select your Amazon domain.
 3. Copy the cookies as `name=value` pairs, one per line. Make sure the `csrf` cookie is included.
 4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
-5. Mount the file read-only into the container (see the `docker-compose.yml` example).
+5. For a static manual fallback, the file can be mounted read-only. Use a read-write mount for browser capture and automatic renewal (as in the Compose example).
 
 ![Alexa cookie export](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 
 ## Security
-- The Alexa cookie file and any `NAVI_AMAZON_CLIENT_SECRET` are sensitive. Keep `.secrets/` and `.env` out of version control (they are in `.gitignore`) and mount `.secrets/` read-only.
+- The Alexa cookie file and any `NAVI_AMAZON_CLIENT_SECRET` are sensitive. Keep `.secrets/` and `.env` out of version control (they are in `.gitignore`); only use a read-write cookie mount when automatic capture or renewal is enabled.
 - Do not expose the `/api/alexa/*` or `/debug/*` endpoints to the public internet without `NAVI_ALEXA_API_KEY` and HTTPS.
 
 ## License

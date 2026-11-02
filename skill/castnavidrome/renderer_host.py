@@ -14,13 +14,14 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from castnavidrome.alexa_device_filter import DeviceFilter
+from castnavidrome.amazon_login import AmazonSession
+from castnavidrome.amazon_login import resolve_cookie_file
 from castnavidrome.alexa_remote import (
     AlexaRemoteError,
     AlexaTextCommandClient,
     build_control_text,
     build_play_track_text,
 )
-from castnavidrome.amazon_oauth import AmazonOAuthSession
 from castnavidrome.localization import normalize_locale
 from castnavidrome.renderer_registry import RendererRegistry
 from castnavidrome.upnp.renderer import MediaRenderer, RendererCommandError
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 49443
 DEFAULT_REFRESH_SECONDS = 300
-DEFAULT_MIN_REFRESH_SECONDS = 10
+DEFAULT_MIN_REFRESH_SECONDS = 60
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 DEFAULT_DISABLE_REFRESH = 'true'
 DEFAULT_SSDP_MX = 2.0
@@ -85,18 +86,17 @@ class AlexaRendererController:
 
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', skill_name: str = 'castnavidrome',
                  locale: str = DEFAULT_ALEXA_LOCALE, subsonic_connection=None,
-                 announce: str = DEFAULT_ANNOUNCE, session: AmazonOAuthSession = None) -> None:
+                 announce: str = DEFAULT_ANNOUNCE) -> None:
         self.cookie_file = cookie_file
         self.domain = domain
         self.skill_name = skill_name
         self.locale = normalize_locale(locale)
         self.subsonic_connection = subsonic_connection
         self.announce = announce if announce in ANNOUNCE_MODES else DEFAULT_ANNOUNCE
-        self.session = session
 
     def _client(self) -> AlexaTextCommandClient:
         return AlexaTextCommandClient(
-            self.cookie_file, domain=self.domain, session=self.session,
+            self.cookie_file, domain=self.domain,
         )
 
     def _device(self, renderer: MediaRenderer) -> dict:
@@ -416,22 +416,6 @@ class RendererHost:
         self.skill_name = self.env.get('NAVI_ALEXA_SKILL_NAME', 'castnavidrome')
         self.locale = normalize_locale(self.env.get('NAVI_ALEXA_LOCALE', DEFAULT_ALEXA_LOCALE))
         self.domain = self.env.get('NAVI_ALEXA_DOMAIN', 'amazon.com')
-        if self.env.get('NAVI_AMAZON_CLIENT_ID'):
-            # Authenticate with OAuth 2.0 (Login with Amazon)
-            # Still load cookies from file for Alexa Remote API (which requires cookies)
-            self.cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
-            self.session = AmazonOAuthSession(domain=self.domain)
-            self._token_file_mtime = 0.0
-            try:
-                if self.session.token_file.is_file():
-                    self._token_file_mtime = self.session.token_file.stat().st_mtime
-            except OSError:
-                pass
-        else:
-            # Fallback: static cookie file
-            self.cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
-            self.session = None
-            self._token_file_mtime = 0.0
         self.announce = (self.env.get('NAVI_ALEXA_RENDERER_ANNOUNCE') or '').strip().lower()
 
         if self.announce not in ANNOUNCE_MODES:
@@ -440,6 +424,12 @@ class RendererHost:
                                self.announce, DEFAULT_ANNOUNCE)
             self.announce = DEFAULT_ANNOUNCE
 
+        configured_cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
+        self.cookie_file = str(resolve_cookie_file(configured_cookie_file))
+        self.amazon_session = AmazonSession(domain=self.domain, session_file=self.cookie_file)
+        self.auto_restart = self.env.get('NAVI_ALEXA_RENDERER_AUTO_RESTART', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+        self._cookie_file_mtime = self._cookie_file_mtime()
+        self._cookie_file_mtime_lock = threading.Lock()
         self.device_filter = DeviceFilter.from_env(self.env)
         self.registry = RendererRegistry(self.state_file)
         self.server = RendererServer(port=self.port, advertise_host=self.advertise_host)
@@ -452,12 +442,12 @@ class RendererHost:
             locale=self.locale,
             subsonic_connection=self._build_subsonic_connection(),
             announce=self.announce,
-            session=self.session,
         )
 
         self._last_refresh = 0.0
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._cookie_watch_thread = None
 
         # Disable continuous device list updates - only update once at container start.
         # Can be re-enabled with NAVI_ALEXA_RENDERER_DISABLE_REFRESH=false.
@@ -554,6 +544,14 @@ class RendererHost:
             announce_thread = threading.Thread(target=self._announce_loop, name='renderer-announce', daemon=True)
             announce_thread.start()
 
+        if self.auto_restart:
+            self._cookie_watch_thread = threading.Thread(
+                target=self._cookie_watch_loop,
+                name='renderer-cookie-watch',
+                daemon=True,
+            )
+            self._cookie_watch_thread.start()
+
     def stop(self) -> None:
         logger.info('Stopping the castNavidrome renderer host.')
         self._stop_event.set()
@@ -581,6 +579,10 @@ class RendererHost:
                 break
             self.ssdp.announce()
 
+    def _cookie_watch_loop(self) -> None:
+        while not self._stop_event.wait(1):
+            self._maybe_restart_on_cookie_change()
+
     def _refresh_loop(self) -> None:
         if not self.disable_refresh:
             while not self._stop_event.wait(self.refresh_seconds):
@@ -588,6 +590,9 @@ class RendererHost:
 
     def _on_discovery_request(self) -> None:
         """Refresh the device list when a client searches for renderers."""
+
+        if self.disable_refresh:
+            return
 
         with self._refresh_lock:
             now = time.monotonic()
@@ -604,33 +609,60 @@ class RendererHost:
     # Device discovery
     #
 
+    def _cookie_file_mtime(self) -> float:
+        """Return the modification time of the cookie file, or 0 if missing."""
+        try:
+            return os.path.getmtime(self.cookie_file)
+        except OSError:
+            return 0.0
+
+    def _maybe_restart_on_cookie_change(self) -> None:
+        """Restart the renderer process when the cookie file has changed.
+
+        The castnavidrome container writes new Alexa session cookies to
+        NAVI_ALEXA_COOKIE_FILE after a successful proxy login.  When the file
+        modification time changes, this renderer reloads itself so the new
+        cookies are picked up immediately without a manual container restart.
+        """
+        try:
+            mtime = os.path.getmtime(self.cookie_file)
+        except OSError:
+            return
+        with self._cookie_file_mtime_lock:
+            if mtime == self._cookie_file_mtime:
+                return
+            if not self.auto_restart:
+                self._cookie_file_mtime = mtime
+                logger.info('Cookie file %s changed, but auto-restart is disabled.', self.cookie_file)
+                return
+            self._cookie_file_mtime = mtime
+            logger.info('Cookie file %s changed; requesting a container restart.', self.cookie_file)
+        os.kill(os.getpid(), signal.SIGTERM)
+
     def list_devices(self) -> list:
-        client = AlexaTextCommandClient(self.cookie_file, domain=self.domain, session=self.session)
+        client = AlexaTextCommandClient(self.cookie_file, domain=self.domain)
         return client.list_devices()
 
     def refresh(self) -> None:
         """Fetch the Alexa devices and update the list of media renderers."""
 
-        # Reload OAuth tokens if the token file has changed
-        if self.session is not None:
-            try:
-                if self.session.token_file.is_file():
-                    mtime = self.session.token_file.stat().st_mtime
-                    if mtime > getattr(self, '_token_file_mtime', 0.0):
-                        self._token_file_mtime = mtime
-                        self.session._load()
-                        logger.info('Reloaded Amazon OAuth tokens from %s.', self.session.token_file)
-            except OSError:
-                pass
+        self._maybe_restart_on_cookie_change()
+
+        # Stellen Sie sicher, dass gültige Cookies vorliegen, damit
+        # die Alexa Remote API erreichbar ist.  Erneuert automatisch
+        # vor Ablauf; bei fehlgeschlagenem Login greift der Fallback
+        # auf die zuletzt bekannte Renderer-Liste.
+        try:
+            self.amazon_session.ensure_session()
+        except Exception as error:
+            logger.warning('Could not ensure Amazon session, falling back to cached cookies: %s', error)
 
         with self._refresh_lock:
             try:
                 devices = self.list_devices()
-            except AlexaRemoteError as error:
+            except (AlexaRemoteError, Exception) as error:
                 logger.warning('Could not fetch the Alexa devices, keeping the last known list: %s', error)
-                return
-            except Exception as error:
-                logger.warning('Could not fetch the Alexa devices, keeping the last known list: %s', error)
+                self._hydrate_renderers_from_cache()
                 return
 
             self._last_refresh = time.monotonic()
@@ -640,6 +672,27 @@ class RendererHost:
                          len(devices), len(selected))
 
             self.sync_renderers(selected)
+
+    def _hydrate_renderers_from_cache(self) -> None:
+        """Rebuild renderers from the persisted registry when device discovery fails."""
+        entries = self.registry.entries()
+        if not entries:
+            return
+        if self.server.renderers():
+            return
+        devices = []
+        for entry in entries:
+            devices.append({
+                'name': entry.get('name') or entry.get('friendlyName') or 'Alexa',
+                'deviceType': entry.get('deviceType') or '',
+                'deviceFamily': entry.get('deviceFamily') or '',
+                'serialNumber': entry.get('serialNumber') or '',
+                'deviceOwnerCustomerId': entry.get('deviceOwnerCustomerId') or '',
+            })
+        selected = self.device_filter.filter(devices) if devices else devices
+        if not selected:
+            selected = devices
+        self.sync_renderers(selected)
 
     def sync_renderers(self, devices: list) -> None:
         renderers = {}

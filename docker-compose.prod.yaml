@@ -11,6 +11,13 @@ services:
       - 'NAVI_PASS=${NAVI_PASS}'
       - 'NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}'
       - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME}'
+      - 'NAVI_ALEXA_COOKIE_FILE=${NAVI_ALEXA_COOKIE_FILE:-/var/lib/castnavidrome/alexa.cookies}'
+      - 'NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}'
+      - 'NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}'
+      - 'NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}'
+      - 'NAVI_ALEXA_RENDERER_AUTO_RESTART=${NAVI_ALEXA_RENDERER_AUTO_RESTART:-true}'
+      - 'NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD:-}'
+      - 'NAVI_ALEXA_CAPTURE_PROXY_HOST=${NAVI_ALEXA_CAPTURE_PROXY_HOST:-}'
       - 'TS_AUTHKEY=${TS_AUTHKEY}'
       # ---- Optional (defaults in skill/castnavidrome/app.py) ----
       # - 'NAVI_PORT=${NAVI_PORT:-443}'
@@ -18,21 +25,14 @@ services:
       # - 'NAVI_API_VER=${NAVI_API_VER:-1.16.1}'
       # - 'NAVI_API_TIMEOUT=${NAVI_API_TIMEOUT:-10}'
       # - 'NAVI_DEBUG=${NAVI_DEBUG:-0}'
-      # - 'NAVI_LOG_LEVEL=${NAVI_LOG_LEVEL:-INFO}'
+      - 'NAVI_LOG_LEVEL=${NAVI_LOG_LEVEL:-INFO}'
       # - 'NAVI_SONG_COUNT=${NAVI_SONG_COUNT:-50}'
       # - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
       # - 'NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}'
       # - 'NAVI_ALEXA_COOKIE_FILE=${NAVI_ALEXA_COOKIE_FILE:-/run/secrets/alexa.cookies}'
-      # Amazon OAuth (Login with Amazon) - required when the OAuth flow is used
-      # - 'NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID}'
-      # - 'NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET}'
-      # - 'NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI}'
-      # - 'NAVI_AMAZON_TOKEN_FILE=${NAVI_AMAZON_TOKEN_FILE:-/var/lib/castnavidrome/amazon_oauth_token.json}'
-      # - 'NAVI_AMAZON_SCOPES=${NAVI_AMAZON_SCOPES:-profile}'
-      # - 'NAVI_AMAZON_SESSION_FILE=${NAVI_AMAZON_SESSION_FILE:-/var/lib/castnavidrome/amazon_session.json}'
-      # - 'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=${NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE}'
+      # Amazon Alexa cookie capture (automatic session cookie retrieval)
     volumes:
-      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
+      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
       - './state:/var/lib/castnavidrome'
     networks:
       default:
@@ -69,6 +69,12 @@ services:
       - 'NAVI_PASS=${NAVI_PASS}'
       - 'NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}'
       - 'NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME}'
+      - 'NAVI_ALEXA_COOKIE_FILE=${NAVI_ALEXA_COOKIE_FILE:-/var/lib/castnavidrome/alexa.cookies}'
+      - 'NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}'
+      - 'NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}'
+      - 'NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}'
+      - 'NAVI_ALEXA_RENDERER_AUTO_RESTART=${NAVI_ALEXA_RENDERER_AUTO_RESTART:-true}'
+      # - 'NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}'
       - 'TS_AUTHKEY=${TS_AUTHKEY}'
       # ---- Optional (defaults in skill/castnavidrome/renderer_host.py) ----
       # - 'NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}'
@@ -91,16 +97,9 @@ services:
       # - 'NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL=${NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL:-720}'
       # - 'NAVI_ALEXA_RENDERER_SSDP_MX=${NAVI_ALEXA_RENDERER_SSDP_MX:-0}'
       # - 'NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT=${NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT:-0}'
-      # Amazon OAuth (Login with Amazon) - required when the OAuth flow is used
-      # - 'NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID}'
-      # - 'NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET}'
-      # - 'NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI}'
-      # - 'NAVI_AMAZON_TOKEN_FILE=${NAVI_AMAZON_TOKEN_FILE:-/var/lib/castnavidrome/amazon_oauth_token.json}'
-      # - 'NAVI_AMAZON_SCOPES=${NAVI_AMAZON_SCOPES:-profile}'
-      # - 'NAVI_AMAZON_SESSION_FILE=${NAVI_AMAZON_SESSION_FILE:-/var/lib/castnavidrome/amazon_session.json}'
-      # - 'NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE=${NAVI_AUTO_RESTART_ON_OAUTH_TOKEN_SAVE}'
+      # Amazon Alexa cookie capture (automatic session cookie retrieval)
     volumes:
-      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro'
+      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
       - './state:/var/lib/castnavidrome'
     restart: unless-stopped
     healthcheck:

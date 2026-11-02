@@ -84,7 +84,7 @@ services:
       - NAVI_USER=${NAVI_USER}
       - NAVI_PASS=${NAVI_PASS}
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
@@ -110,7 +110,7 @@ services:
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
     environment:
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
     volumes:
       - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
       - ./state:/var/lib/castnavidrome
@@ -251,7 +251,7 @@ services:
       - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
-      - NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies
+      - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID:-}
       - NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET:-}
       - NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI:-}
@@ -313,7 +313,7 @@ El servicio lee su configuración de variables de entorno.
 | `NAVI_ALEXA_DOMAIN` | Dominio de Amazon | `amazon.com` |
 | `NAVI_ALEXA_LOCALE` | Configuración regional de las respuestas y comandos de voz del skill | `en-US` |
 | `NAVI_ALEXA_SKILL_NAME` | Nombre de invocación del skill | `castnavidrome` |
-| `NAVI_ALEXA_COOKIE_FILE` | Ruta a un archivo de cookies de Alexa (fallback de cookies) | `/run/secrets/alexa.cookies` |
+| `NAVI_ALEXA_COOKIE_FILE` | Ruta compartida al archivo persistente de cookies Alexa | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_AMAZON_CLIENT_ID` / `NAVI_AMAZON_CLIENT_SECRET` / `NAVI_AMAZON_REDIRECT_URI` | Inicio de sesión de Amazon OAuth 2.0 / Login with Amazon | `amzn1.application-oa2-client.xxx` / `secreto` / `https://...` |
 | `NAVI_AMAZON_SESSION_FILE` | Cookies de sesión de Amazon persistidas | `/var/lib/castnavidrome/amazon_session.json` |
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | URL de emisiones de radio | — |

@@ -1,3 +1,4 @@
+import socket
 import unittest
 from unittest.mock import MagicMock
 
@@ -16,6 +17,45 @@ class FakeRenderer:
         self.friendly_name = 'castNavidrome: Test'
 
 
+class SsdpMulticastMembershipTests(unittest.TestCase):
+    def test_ssdp_group_is_joined_on_every_ipv4_interface(self):
+        class FakeSocket:
+            def __init__(self):
+                self.memberships = []
+                self.outgoing_interface = None
+
+            def setsockopt(self, _level, option, value):
+                if option == socket.IP_ADD_MEMBERSHIP:
+                    self.memberships.append(value)
+                elif option == socket.IP_MULTICAST_IF:
+                    self.outgoing_interface = value
+
+        fake_socket = FakeSocket()
+
+        self.assertTrue(SsdpServer._join_ipv4_multicast(
+            fake_socket,
+            ['10.0.0.2', '192.168.1.2', 'fe80::1'],
+        ))
+        self.assertEqual(len(fake_socket.memberships), 2)
+
+    def test_ssdp_announcement_uses_the_advertised_local_interface(self):
+        class FakeSocket:
+            def __init__(self):
+                self.outgoing_interface = None
+
+            def setsockopt(self, _level, _option, value):
+                self.outgoing_interface = value
+
+        fake_socket = FakeSocket()
+
+        self.assertTrue(SsdpServer._set_ipv4_multicast_interface(
+            fake_socket,
+            '192.168.1.20',
+            ['10.0.0.2', '192.168.1.20'],
+        ))
+        self.assertEqual(fake_socket.outgoing_interface, socket.inet_aton('192.168.1.20'))
+
+
 class SsdpSearchTests(unittest.TestCase):
     """The search behaviour of the SSDP responder.
 
@@ -28,7 +68,7 @@ class SsdpSearchTests(unittest.TestCase):
         self.server = SsdpServer(advertise_host='192.168.178.128', http_port=49443)
         self.renderer = FakeRenderer()
         self.server.set_renderers([self.renderer])
-        self.server._socket = MagicMock()
+        self.server._sendto = MagicMock()
 
     def _search(self, search_target):
         message = (f'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n'
@@ -36,7 +76,7 @@ class SsdpSearchTests(unittest.TestCase):
 
         self.server._handle_message(message, ('192.168.178.50', 49152))
 
-        responses = [call.args[0].decode('utf-8') for call in self.server._socket.sendto.call_args_list]
+        responses = [call.args[0].decode('utf-8') for call in self.server._sendto.call_args_list]
         targets = [self._header(response, 'ST') for response in responses]
         usns = [self._header(response, 'USN') for response in responses]
 
@@ -102,18 +142,20 @@ class SsdpAnnounceTests(unittest.TestCase):
         self.server = SsdpServer(advertise_host='192.168.178.128', http_port=49443)
         self.renderer = FakeRenderer()
         self.server.set_renderers([self.renderer])
-        self.server._socket = MagicMock()
+        self.server._sockets = [MagicMock()]
+        self.server._sendto = MagicMock()
 
     def _notify_payloads(self, count=1, delay=0):
         self.server.announce(count=count, delay=delay)
-        return [call.args[0].decode('utf-8') for call in self.server._socket.sendto.call_args_list]
+        return [call.args[0].decode('utf-8') for call in self.server._sendto.call_args_list]
 
     def test_announce_repeats_every_notification(self):
         payloads = self._notify_payloads(count=3, delay=0)
 
         alive = [p for p in payloads if 'NTS: ssdp:alive' in p]
-        targets = [SSDP_SEARCH_TARGET, AVTRANSPORT_SERVICE_TYPE, RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
-        self.assertEqual(len(alive), 3 * (1 + len(targets)))
+        targets = [SSDP_SEARCH_TARGET, MEDIA_RENDERER_DEVICE_TYPE, AVTRANSPORT_SERVICE_TYPE,
+               RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
+        self.assertEqual(len(alive), 3 * len(targets) * 3)
 
     def test_every_notification_carries_the_location(self):
         payloads = self._notify_payloads(count=1, delay=0)

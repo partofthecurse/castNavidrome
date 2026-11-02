@@ -9,8 +9,8 @@
     <div class="container">
       <h1>{{ title }}</h1>
       <hr>
-      <h3>Now playing {{ current.title }} by {{ current.artist }}</h3>
-      <h4>Track ID: {{ current.id }}</h4>
+      <h3>Now playing {{ current.title if current else '' }} by {{ current.artist if current else '' }}</h3>
+      <h4>Track ID: {{ current.id if current else '' }}</h4>
       <br>
       {% block content %}{% endblock %}
     </div>
