@@ -255,30 +255,6 @@ class SsdpSearchTests(unittest.TestCase):
 
         self.assertNotEqual(self.server._sendto.call_args_list, [])
 
-    def test_av_transport_version_2_is_answered_with_requested_st(self):
-        """AVTransport:2 is matched and answered with the requested ST."""
-
-        targets, usns, _ = self._search(
-            'urn:schemas-upnp-org:service:AVTransport:2'
-        )
-
-        self.assertEqual(targets, ['urn:schemas-upnp-org:service:AVTransport:2'])
-        self.assertEqual(
-            usns, ['uuid:1234::urn:schemas-upnp-org:service:AVTransport:2']
-        )
-
-    def test_av_transport_version_3_is_answered_with_requested_st(self):
-        """AVTransport:3 is matched and answered with the requested ST."""
-
-        targets, usns, _ = self._search(
-            'urn:schemas-upnp-org:service:AVTransport:3'
-        )
-
-        self.assertEqual(targets, ['urn:schemas-upnp-org:service:AVTransport:3'])
-        self.assertEqual(
-            usns, ['uuid:1234::urn:schemas-upnp-org:service:AVTransport:3']
-        )
-
     def test_rate_limit_is_a_noop_when_no_packets_were_sent(self):
         """The first packet is not delayed."""
 

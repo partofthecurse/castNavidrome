@@ -521,24 +521,8 @@ class SsdpServer:
         if target == f'uuid:{udid.lower()}':
             return True
 
-        # Match device/service types ignoring the version number, so that a
-        # client searching for AVTransport:2 or AVTransport:3 is matched
-        # against the implemented AVTransport:1 service.  UPnP backward
-        # compatibility lets a device answer searches for lower versions; we
-        # answer those searches too, using the requested ST in the response.
-        target_base = self._base_type(target)
-        if target_base:
-            return any(target_base == self._base_type(known).lower() for known in self.search_targets)
-
-        return False
-
-    @staticmethod
-    def _base_type(st: str) -> str:
-        """Return the URN base without a trailing numeric version (:N)."""
-        base, _, version = st.rpartition(':')
-        if version.isdigit():
-            return base
-        return st
+        # A client can also search for one of the services of the renderer.
+        return target in {search_target.lower() for search_target in self.search_targets}
 
     def _build_search_response(self, search_target: str, renderer) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'
