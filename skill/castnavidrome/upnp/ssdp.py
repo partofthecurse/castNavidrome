@@ -443,7 +443,7 @@ class SsdpServer:
                 time.sleep(delay - last)
             last = delay
             response = self._build_search_response(target, renderer)
-            logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
+            logger.info('SSDP response to %s:%s: %s', address[0], address[1], response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
             # Sende jede Antwort mehrfach, damit ein verlorenes UDP-Paket
             # den Renderer nicht vor Clients wie Jellybox oder Feishin verbirgt.
             for copy in range(self.search_response_count):
