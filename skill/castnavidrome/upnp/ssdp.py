@@ -115,6 +115,11 @@ class SsdpServer:
         self._packet_times = []
         self._packet_lock = threading.Lock()
 
+        # Pro-Quelle protokollierte Suchen, damit jeder Client nur einmal
+        # als suchend geloggt wird (INFO).
+        self._search_logged = set()
+        self._search_logged_lock = threading.Lock()
+
     #
     # Renderer management
     #
@@ -424,6 +429,15 @@ class SsdpServer:
         search_target = headers.get('st', '').strip()
         if not search_target:
             search_target = SSDP_ALL
+
+        # INFO-Log beim ersten M-SEARCH einer Quelle, damit sichtbar ist,
+        # welcher Client sucht.  Spätere Suchen derselben Quelle werden
+        # nicht erneut geloggt, um die Logs nicht zu fluten.
+        log_key = (address[0], address[1], search_target.lower())
+        with self._search_logged_lock:
+            if log_key not in self._search_logged:
+                self._search_logged.add(log_key)
+                logger.info('SSDP search for %s from %s:%s', search_target, address[0], address[1])
 
         try:
             mx = float(headers.get('mx', '0') or '0')
