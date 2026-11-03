@@ -377,6 +377,22 @@ class SsdpServer:
     #
 
     def _handle_message(self, message: str, address) -> None:
+        """Handle an incoming SSDP packet.
+
+        The handler itself does not block and does not send anything: it
+        parses the request, builds the list of answers and starts a separate
+        task that sends them with a random delay of up to MX seconds.  This
+        keeps the SSDP responder responsive and spreads the answers out so
+        that they do not arrive as a burst.
+        """
+
+        try:
+            self._handle_message_inner(message, address)
+        except Exception as error:  # pragma: no cover - defensive
+            logger.warning('Could not handle an SSDP message from %s:%s: %s',
+                           address[0], address[1], error)
+
+    def _handle_message_inner(self, message: str, address) -> None:
         # Ignore the SSDP packets that the renderer sends itself.  The
         # multicast announcements are sent from every socket the renderer
         # owns, and the multicast loopback option makes them come back on
@@ -401,21 +417,47 @@ class SsdpServer:
         if not search_target:
             search_target = SSDP_ALL
 
+        try:
+            mx = float(headers.get('mx', '0') or '0')
+        except (TypeError, ValueError):
+            mx = 0.0
+        mx = max(0.0, mx) if mx else self.mx
+
         matches = [renderer for renderer in self.renderers() if self._matches(search_target, renderer.udid)]
         logger.debug('Received an SSDP search for %s from %s:%s, %s renderer(s) match.',
                      search_target, address[0], address[1], len(matches))
         logger.debug('The SSDP search was: %s', message.replace('\\r\\n', ' | '))
 
-        # Send responses with a random delay up to the configured MX value
-        # so that bursts of M-SEARCH answers are spread out.  A value of
-        # zero (the default) keeps the previous immediate behaviour.
+        # Exactly one answer for the requested search target per matching
+        # renderer.  A search for "ssdp:all" is answered with one response
+        # per renderer using "ssdp:all" as the ST, instead of one response
+        # per service, so that the WLAN is not flooded with duplicates.
         replies = []
         for renderer in matches:
-            for target in self._response_targets(search_target):
-                delay = random.uniform(0.0, self.mx) if self.mx > 0 else 0.0
-                replies.append((delay, renderer, target))
+            delay = random.uniform(0.0, mx) if mx > 0 else 0.0
+            replies.append((delay, renderer, search_target))
+
+        if not replies:
+            return
 
         replies.sort(key=lambda item: item[0])
+        thread = threading.Thread(
+            target=self._send_search_responses,
+            args=(address, replies),
+            name='upnp-ssdp-response',
+            daemon=True,
+        )
+        thread.start()
+
+    def _send_search_responses(self, address, replies) -> None:
+        """Send the M-SEARCH answers with a random delay.
+
+        The answers are sent per unicast to the source address and port of
+        the search request.  Each answer is delayed by a random value of up
+        to MX seconds, so that the answers of several renderers do not
+        arrive as a burst.
+        """
+
         last = 0.0
         for delay, renderer, target in replies:
             if delay > last:
@@ -452,33 +494,6 @@ class SsdpServer:
 
         # A client can also search for one of the services of the renderer.
         return target in {search_target.lower() for search_target in self.search_targets}
-
-    def _response_targets(self, search_target: str) -> list:
-        """Return the search targets that the renderers answer to.
-
-        A search for "ssdp:all" is answered with one response per search
-        target of the renderer, every response with its own search target in
-        the ST header and its own USN.  Clients that are looking for the
-        AVTransport service only, for example Supersonic, ignore the
-        responses for the other targets.
-
-        :param str search_target: The search target of the request
-        :return: The search targets of the responses
-        :rtype: list
-        """
-
-        target = search_target.lower()
-
-        if target == SSDP_ALL:
-            return [SSDP_SEARCH_TARGET] + list(self.search_targets)
-
-        if target == SSDP_SEARCH_TARGET:
-            return [SSDP_SEARCH_TARGET] + list(self.search_targets)
-
-        if target == SSDP_ROOT_DEVICE:
-            return [SSDP_ROOT_DEVICE] + list(self.search_targets)
-
-        return [search_target]
 
     def _build_search_response(self, search_target: str, renderer) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'

@@ -1,6 +1,7 @@
 import socket
+import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from castnavidrome.upnp.constants import (
     AVTRANSPORT_SERVICE_TYPE,
@@ -78,7 +79,16 @@ class SsdpSearchTests(unittest.TestCase):
         message = (f'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n'
                    f'MAN: "ssdp:discover"\r\nMX: 2\r\nST: {search_target}\r\n\r\n')
 
-        self.server._handle_message(message, ('192.168.178.50', 49152))
+        # The handler spawns a daemon thread that sends the answers with a
+        # random delay of up to MX seconds.  Wait for the thread to finish
+        # so that the mocked _sendto calls are visible.
+        with patch('castnavidrome.upnp.ssdp.time.sleep'):
+            self.server._handle_message(message, ('192.168.178.50', 49152))
+
+        thread = threading.enumerate()
+        for t in thread:
+            if t.name == 'upnp-ssdp-response' and t.is_alive():
+                t.join(timeout=5)
 
         responses = [call.args[0].decode('utf-8') for call in self.server._sendto.call_args_list]
         targets = [self._header(response, 'ST') for response in responses]
@@ -93,17 +103,13 @@ class SsdpSearchTests(unittest.TestCase):
                 return line.split(':', 1)[1].strip()
         return ''
 
-    def test_the_search_for_all_answers_with_every_search_target(self):
+    def test_the_search_for_all_answers_with_one_response_per_renderer(self):
+        """A search for "ssdp:all" gets one answer per renderer, not per service."""
+
         targets, usns, _ = self._search('ssdp:all')
 
-        self.assertEqual(targets, [
-            SSDP_SEARCH_TARGET,
-            MEDIA_RENDERER_DEVICE_TYPE,
-            AVTRANSPORT_SERVICE_TYPE,
-            RENDERINGCONTROL_SERVICE_TYPE,
-            CONNECTIONMANAGER_SERVICE_TYPE,
-        ])
-        self.assertEqual(usns[2], 'uuid:1234::' + AVTRANSPORT_SERVICE_TYPE)
+        self.assertEqual(targets, [SSDP_SEARCH_TARGET])
+        self.assertEqual(usns, ['uuid:1234::ssdp:all'])
 
     def test_the_search_for_the_av_transport_service_is_answered(self):
         targets, usns, _ = self._search(AVTRANSPORT_SERVICE_TYPE)
@@ -121,11 +127,10 @@ class SsdpSearchTests(unittest.TestCase):
 
         self.assertEqual(targets, [])
 
-    def test_the_search_for_the_root_device_answers_with_every_target(self):
+    def test_the_search_for_the_root_device_answers_with_the_requested_target(self):
         targets, _, _ = self._search('upnp:rootdevice')
 
-        self.assertIn('upnp:rootdevice', targets)
-        self.assertIn(AVTRANSPORT_SERVICE_TYPE, targets)
+        self.assertEqual(targets, ['upnp:rootdevice'])
 
     def test_every_response_has_a_location(self):
         _, _, responses = self._search('ssdp:all')
@@ -133,6 +138,12 @@ class SsdpSearchTests(unittest.TestCase):
         for response in responses:
             self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', response)
             self.assertIn('HTTP/1.1 200 OK', response)
+
+    def test_every_response_is_sent_to_the_source_address(self):
+        self._search('ssdp:all')
+
+        for call in self.server._sendto.call_args_list:
+            self.assertEqual(call.args[1], ('192.168.178.50', 49152))
 
     def test_notify_messages_are_ignored(self):
         """The renderer only answers M-SEARCH requests, never NOTIFY."""
