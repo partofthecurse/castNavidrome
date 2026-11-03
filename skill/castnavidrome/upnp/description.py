@@ -87,30 +87,29 @@ SERVICE_ACTIONS = {
 EXTRA_STATE_VARIABLES = {
     'AVTransport': [
         ('LastChange', 'string', True),
-        ('TransportState', 'string', True),
-        ('TransportStatus', 'string', True),
-        ('TransportPlaySpeed', 'string', True),
-        ('CurrentPlayMode', 'string', True),
-        ('CurrentTransportActions', 'string', True),
-        ('CurrentTrackMetaData', 'string', True),
-        ('CurrentTrackURI', 'uri', True),
-        ('CurrentTrackDuration', 'string', True),
-        ('CurrentTrackNumber', 'ui4', True),
-        ('CurrentMediaDuration', 'string', True),
-        ('NrTracks', 'ui4', True),
-        ('RelativeTimePosition', 'string', True),
-        ('AbsoluteTimePosition', 'string', True),
-        ('AVTransportURI', 'uri', True),
-        ('AVTransportURIMetaData', 'string', True),
-        ('NextAVTransportURI', 'uri', True),
-        ('NextAVTransportURIMetaData', 'string', True),
-        ('PlaybackStorageMedium', 'string', True),
-        ('RecordStorageMedium', 'string', True),
-        ('PossiblePlaybackStorageMedia', 'string', True),
-        ('PossibleRecordStorageMedia', 'string', True),
-        ('RecordMedium', 'string', True),
-        ('CurrentRecordQualityMode', 'string', True),
-        ('PossibleRecordQualityModes', 'string', True),
+        ('TransportState', 'string', False),
+        ('TransportStatus', 'string', False),
+        ('TransportPlaySpeed', 'string', False),
+        ('CurrentPlayMode', 'string', False),
+        ('CurrentTransportActions', 'string', False),
+        ('CurrentTrackMetaData', 'string', False),
+        ('CurrentTrackURI', 'uri', False),
+        ('CurrentTrackDuration', 'string', False),
+        ('CurrentTrackNumber', 'ui4', False),
+        ('CurrentMediaDuration', 'string', False),
+        ('NrTracks', 'ui4', False),
+        ('RelativeTimePosition', 'string', False),
+        ('AbsoluteTimePosition', 'string', False),
+        ('AVTransportURI', 'uri', False),
+        ('AVTransportURIMetaData', 'string', False),
+        ('NextAVTransportURI', 'uri', False),
+        ('NextAVTransportURIMetaData', 'string', False),
+        ('PlaybackStorageMedium', 'string', False),
+        ('RecordStorageMedium', 'string', False),
+        ('PossiblePlaybackStorageMedia', 'string', False),
+        ('PossibleRecordStorageMedia', 'string', False),
+        ('RecordMedium', 'string', False),
+        ('CurrentRecordQualityMode', 'string', False),
     ],
     'RenderingControl': [
         ('Volume', 'ui2', True),
@@ -119,6 +118,35 @@ EXTRA_STATE_VARIABLES = {
     'ConnectionManager': [
         ('ProtocolInfo', 'string', True),
     ],
+}
+
+# Allowed values for state variables that need them in the SCPD.
+ALLOWED_VALUES = {
+    'TransportState': ['STOPPED', 'PLAYING', 'PAUSED_PLAYBACK', 'TRANSITIONING', 'NO_MEDIA_PRESENT'],
+    'TransportStatus': ['OK', 'ERROR_OCCURRED'],
+    'CurrentPlayMode': ['NORMAL', 'REPEAT_ALL', 'REPEAT_ONE', 'SHUFFLE'],
+    'Seek-Unit': ['REL_TIME', 'TRACK_NR'],
+}
+
+# Out-arguments of actions should point to the real state variable, not to
+# an A_ARG_TYPE_ placeholder.
+OUT_ARGUMENT_TO_VARIABLE = {
+    'CurrentTransportState': 'TransportState',
+    'CurrentTransportStatus': 'TransportStatus',
+    'CurrentSpeed': 'TransportPlaySpeed',
+    'CurrentPlayMode': 'CurrentPlayMode',
+    'Track': 'CurrentTrackNumber',
+    'NrTracks': 'NrTracks',
+    'RelativeTimePosition': 'RelativeTimePosition',
+    'AbsoluteTimePosition': 'AbsoluteTimePosition',
+    'MediaDuration': 'CurrentMediaDuration',
+    'Actions': 'CurrentTransportActions',
+    'CurrentURI': 'AVTransportURI',
+    'CurrentURIMetaData': 'AVTransportURIMetaData',
+    'NextURI': 'NextAVTransportURI',
+    'NextURIMetaData': 'NextAVTransportURIMetaData',
+    'RecordMedium': 'RecordMedium',
+    'WriteMedium': 'RecordMedium',
 }
 
 
@@ -199,9 +227,15 @@ def build_scpd(service_key: str) -> str:
     for action_name, arguments in actions:
         argument_lines = []
         for argument_name, direction in arguments:
-            data_type = ACTION_ARGUMENTS.get(argument_name, 'string')
-            state_variable = f'A_ARG_TYPE_{argument_name}'
-            state_variables[argument_name] = (state_variable, data_type)
+            # Out-arguments point to real state variables, not to
+            # A_ARG_TYPE_ placeholders.
+            if direction == 'out' and argument_name in OUT_ARGUMENT_TO_VARIABLE:
+                state_variable = OUT_ARGUMENT_TO_VARIABLE[argument_name]
+                data_type = None  # Will be resolved from EXTRA_STATE_VARIABLES below.
+            else:
+                data_type = ACTION_ARGUMENTS.get(argument_name, 'string')
+                state_variable = f'A_ARG_TYPE_{argument_name}'
+                state_variables[argument_name] = (state_variable, data_type)
             argument_lines.append(
                 '        <argument>\n'
                 f'          <name>{argument_name}</name>\n'
@@ -224,17 +258,27 @@ def build_scpd(service_key: str) -> str:
         variable_lines.append(
             '    <stateVariable sendEvents="no">\n'
             f'      <name>{state_variable}</name>\n'
-            f'      <dataType>{data_type}</dataType>\n'
-            '    </stateVariable>'
+            f'      <dataType>{data_type}</dataType>'
         )
+        if state_variable in ALLOWED_VALUES:
+            allowed = ''.join(
+                f'<allowedValue>{v}</allowedValue>' for v in ALLOWED_VALUES[state_variable]
+            )
+            variable_lines.append(f'      <allowedValueList>{allowed}</allowedValueList>')
+        variable_lines.append('    </stateVariable>')
 
     for name, data_type, send_events in EXTRA_STATE_VARIABLES.get(service_key, []):
         variable_lines.append(
             f'    <stateVariable sendEvents="{"yes" if send_events else "no"}">\n'
             f'      <name>{name}</name>\n'
-            f'      <dataType>{data_type}</dataType>\n'
-            '    </stateVariable>'
+            f'      <dataType>{data_type}</dataType>'
         )
+        if name in ALLOWED_VALUES:
+            allowed = ''.join(
+                f'<allowedValue>{v}</allowedValue>' for v in ALLOWED_VALUES[name]
+            )
+            variable_lines.append(f'      <allowedValueList>{allowed}</allowedValueList>')
+        variable_lines.append('    </stateVariable>')
 
     return '\n'.join([
         '<?xml version="1.0"?>',

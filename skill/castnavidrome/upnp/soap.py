@@ -10,7 +10,7 @@ SOAP_ENCODING_NAMESPACE = 'http://schemas.xmlsoap.org/soap/encoding/'
 
 ACTION_ARGUMENTS = {
     'InstanceID': 'ui4',
-    'Speed': 'r4',
+    'Speed': 'string',
     'CurrentURI': 'string',
     'CurrentURIMetaData': 'string',
     'NextURI': 'string',
@@ -34,6 +34,8 @@ ACTION_ARGUMENTS = {
     'RcsID': 'i4',
     'Status': 'string',
     'Result': 'string',
+    'Track': 'ui4',
+    'NrTracks': 'ui4',
 }
 
 
