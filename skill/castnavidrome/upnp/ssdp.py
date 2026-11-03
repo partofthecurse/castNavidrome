@@ -21,8 +21,6 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 SSDP_MULTICAST_ADDRESS = '239.255.255.250'
-SSDP_MULTICAST_IPV6_ADDRESS = 'ff02::c'
-SSDP_SITE_LOCAL_IPV6_ADDRESS = 'ff05::c'
 SSDP_MULTICAST_PORT = 1900
 SSDP_PORT = 1900
 SSDP_ALL = 'ssdp:all'
@@ -214,36 +212,6 @@ class SsdpServer:
         except OSError as error:
             logger.warning('Could not create the IPv4 SSDP socket on port %s: %s', self.port, error)
 
-        # --- IPv6 socket (ff02::c, ff05::c) ---
-        try:
-            v6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            v6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # IPv6-only so that the IPv4 socket can bind to port 1900 as well.
-            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-            v6.bind(('', self.port, 0, socket.IPPROTO_IPV6))
-            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 4)
-            v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_LOOP, 1)
-            joined = False
-            for _, name in socket.if_nameindex():
-                try:
-                    index = socket.if_nametoindex(name)
-                except OSError:
-                    continue
-                for group in (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_SITE_LOCAL_IPV6_ADDRESS):
-                    group_bin = socket.inet_pton(socket.AF_INET6, group)
-                    mreq = group_bin + struct.pack('@I', index)
-                    try:
-                        v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP, mreq)
-                        joined = True
-                    except OSError:
-                        pass
-            if not joined:
-                logger.warning('Could not join any IPv6 SSDP multicast group.')
-            sockets.append(v6)
-            logger.info('IPv6 SSDP socket listening on port %s.', self.port)
-        except OSError as error:
-            logger.warning('Could not create the IPv6 SSDP socket on port %s: %s', self.port, error)
-
         if not sockets:
             raise OSError('Could not create any SSDP socket')
 
@@ -283,7 +251,7 @@ class SsdpServer:
 
     @staticmethod
     def _local_addresses() -> list:
-        """Return the IPv4 and IPv6 addresses of all local network interfaces."""
+        """Return the IPv4 addresses of all local network interfaces."""
 
         addresses = []
 
@@ -299,23 +267,6 @@ class SsdpServer:
                             addresses.append(address)
                     finally:
                         probe.close()
-
-                    # Try IPv6
-                    try:
-                        probe6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-                        try:
-                            # Get IPv6 address for the interface
-                            packed6 = fcntl.ioctl(probe6.fileno(), 0x891b, struct.pack('256s', name[:15].encode()))
-                            # Parse IPv6 address
-                            import ipaddress
-                            addr_str = packed6[:46].split(b'\x00', 1)[0].decode('utf-8', 'ignore')
-                            if addr_str and not addr_str.startswith('::1') and ':' in addr_str:
-                                if addr_str not in addresses:
-                                    addresses.append(addr_str)
-                        finally:
-                            probe6.close()
-                    except (OSError, AttributeError):
-                        pass
                 except (OSError, AttributeError):
                     pass
         except (OSError, AttributeError):
@@ -327,15 +278,6 @@ class SsdpServer:
                 address = info[4][0]
                 if not address.startswith('127.') and address not in addresses:
                     addresses.append(address)
-        except OSError:
-            pass
-
-        try:
-            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET6):
-                address = info[4][0]
-                if address and not address.startswith('::1') and ':' in address:
-                    if address not in addresses:
-                        addresses.append(address)
         except OSError:
             pass
 
@@ -582,11 +524,7 @@ class SsdpServer:
 
         self._wait_for_rate_limit()
 
-        host = address[0]
-        if '.' in host:
-            candidates = [sock for sock in self._sockets if sock.family == socket.AF_INET]
-        else:
-            candidates = [sock for sock in self._sockets if sock.family == socket.AF_INET6]
+        candidates = [sock for sock in self._sockets if sock.family == socket.AF_INET]
 
         if not candidates:
             return
@@ -707,8 +645,6 @@ class SsdpServer:
                 for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:alive', target)
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
-                    self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
-                    self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
             if delay > 0:
                 time.sleep(delay)
 
@@ -734,8 +670,6 @@ class SsdpServer:
                 for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
                     payload = self._build_notify(renderer, 'ssdp:byebye', target)
                     self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
-                    self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
-                    self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
             if delay > 0:
                 time.sleep(delay)
 
@@ -751,15 +685,13 @@ class SsdpServer:
         for target in [SSDP_SEARCH_TARGET] + list(self.search_targets):
             payload = self._build_notify(renderer, 'ssdp:byebye', target)
             self._sendto(payload, (SSDP_MULTICAST_ADDRESS, SSDP_MULTICAST_PORT))
-            self._sendto(payload, (SSDP_MULTICAST_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
-            self._sendto(payload, (SSDP_SITE_LOCAL_IPV6_ADDRESS, SSDP_MULTICAST_PORT))
 
     def _build_notify(self, renderer, notification_subtype: str, notify_type: str) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'
 
         lines = [
             'NOTIFY * HTTP/1.1',
-            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}; ipv6:[{SSDP_MULTICAST_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}; ipv6site:[{SSDP_SITE_LOCAL_IPV6_ADDRESS}]:{SSDP_MULTICAST_PORT}',
+            f'HOST: {SSDP_MULTICAST_ADDRESS}:{SSDP_MULTICAST_PORT}',
             f'CACHE-CONTROL: max-age={SSDP_MAX_AGE}',
             f'LOCATION: {location}',
             f'NT: {notify_type}',

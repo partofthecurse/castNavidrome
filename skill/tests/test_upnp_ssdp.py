@@ -364,7 +364,7 @@ class SsdpAnnounceTests(unittest.TestCase):
         alive = [p for p in payloads if 'NTS: ssdp:alive' in p]
         targets = [SSDP_SEARCH_TARGET, MEDIA_RENDERER_DEVICE_TYPE, AVTRANSPORT_SERVICE_TYPE,
                RENDERINGCONTROL_SERVICE_TYPE, CONNECTIONMANAGER_SERVICE_TYPE]
-        self.assertEqual(len(alive), 3 * len(targets) * 3)
+        self.assertEqual(len(alive), 3 * len(targets) * 1)
 
     def test_every_notification_carries_the_location(self):
         payloads = self._notify_payloads(count=1, delay=0)
