@@ -311,11 +311,66 @@ class SsdpServer:
                 except Exception as error:  # pragma: no cover - defensive
                     logger.warning('Could not handle an SSDP message: %s', error)
 
+    def _is_own_address(self, host: str) -> bool:
+        """Return True when the host is one of the renderer's own addresses.
+
+        Loopback (127.0.0.1, ::1) and every address the renderer listens on
+        or advertises are considered own addresses, so that the multicast
+        loopback of the renderer's own NOTIFY / M-SEARCH packets does not
+        trigger a response.
+        """
+
+        if not host:
+            return True
+
+        lowered = host.lower()
+        if lowered in ('127.0.0.1', '::1', 'localhost', 'ip6-localhost', 'ip6-loopback'):
+            return True
+
+        own = self._own_addresses()
+        return lowered in own
+
+    def _own_addresses(self) -> set:
+        """Cache the renderer's own addresses so that every packet is cheap."""
+
+        cached = getattr(self, '_own_addresses_cache', None)
+        if cached is not None:
+            return cached
+
+        own = set()
+        advertise = (self.advertise_host or '').strip()
+        if advertise:
+            own.add(advertise.lower())
+        for address in self._local_addresses():
+            own.add(address.lower())
+
+        self._own_addresses_cache = own
+        return own
+
     #
     # Message handling
     #
 
     def _handle_message(self, message: str, address) -> None:
+        # Ignore the SSDP packets that the renderer sends itself.  The
+        # multicast announcements are sent from every socket the renderer
+        # owns, and the multicast loopback option makes them come back on
+        # the same sockets.  Answering them would start an endless
+        # M-SEARCH -> response -> M-SEARCH loop.
+        if self._is_own_address(address[0]):
+            logger.debug('Ignored an SSDP packet from our own address %s.', address[0])
+            return
+
+        request_line = message.splitlines()[0] if message else ''
+        method = request_line.split(' ', 1)[0].upper() if request_line else ''
+
+        # Only answer M-SEARCH requests.  NOTIFY (ssdp:alive / ssdp:byebye)
+        # and HTTP responses from other devices are announcements, not
+        # discovery requests, and answering them would create loops.
+        if method != 'M-SEARCH':
+            logger.debug('Ignored an SSDP %s from %s:%s.', method or 'message', address[0], address[1])
+            return
+
         headers = self._parse_headers(message)
         search_target = headers.get('st', '').strip()
         if not search_target:

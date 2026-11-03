@@ -130,6 +130,62 @@ class SsdpSearchTests(unittest.TestCase):
             self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', response)
             self.assertIn('HTTP/1.1 200 OK', response)
 
+    def test_notify_messages_are_ignored(self):
+        """The renderer only answers M-SEARCH requests, never NOTIFY."""
+
+        notify = (
+            'NOTIFY * HTTP/1.1\r\n'
+            'HOST: 239.255.255.250:1900\r\n'
+            'NT: upnp:rootdevice\r\n'
+            'NTS: ssdp:alive\r\n'
+            'LOCATION: http://192.168.178.50:49443/description/1234.xml\r\n\r\n'
+        )
+
+        self.server._sendto = MagicMock()
+        self.server._handle_message(notify, ('192.168.178.50', 1900))
+
+        self.assertEqual(self.server._sendto.call_args_list, [])
+
+    def test_http_responses_are_ignored(self):
+        """HTTP responses from other devices are not answered either."""
+
+        response = (
+            'HTTP/1.1 200 OK\r\n'
+            'ST: upnp:rootdevice\r\n'
+            'LOCATION: http://192.168.178.50:49443/description/1234.xml\r\n\r\n'
+        )
+
+        self.server._sendto = MagicMock()
+        self.server._handle_message(response, ('192.168.178.50', 49152))
+
+        self.assertEqual(self.server._sendto.call_args_list, [])
+
+    def test_packets_from_the_own_address_are_ignored(self):
+        """The renderer ignores its own multicast announcements.
+
+        The multicast loopback makes the renderer's own NOTIFY packets come
+        back on the same sockets.  Answering them would start an endless
+        M-SEARCH -> response -> M-SEARCH loop.
+        """
+
+        self.server._sendto = MagicMock()
+        self.server._is_own_address = lambda host: host == '192.168.178.128'
+
+        message = (f'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n'
+                   f'MAN: "ssdp:discover"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n')
+
+        self.server._handle_message(message, ('192.168.178.128', 49152))
+
+        self.assertEqual(self.server._sendto.call_args_list, [])
+
+    def test_loopback_address_is_own_address(self):
+        self.assertTrue(self.server._is_own_address('127.0.0.1'))
+        self.assertTrue(self.server._is_own_address('::1'))
+        self.assertTrue(self.server._is_own_address('localhost'))
+
+    def test_advertised_address_is_own_address(self):
+        self.assertTrue(self.server._is_own_address('192.168.178.128'))
+
 
 class SsdpAnnounceTests(unittest.TestCase):
     """The announce behaviour of the SSDP server.
