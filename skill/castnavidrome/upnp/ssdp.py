@@ -36,12 +36,11 @@ SERVER_HEADER = 'Linux/5.0 UPnP/1.1 castNavidrome/1.0'
 SSDP_NOTIFY_COUNT = 3
 SSDP_NOTIFY_DELAY = 0.4
 
-# A client that searches for "ssdp:all" gets one answer per search target
-# of every renderer.  A renderer with several devices therefore answers a
-# single M-SEARCH with a dozen responses.  The deduplication window below
-# suppresses the duplicate answers that a client sends repeatedly, so that
-# the WLAN is not flooded with the same (ST, USN) pair over and over.
-SSDP_RESPONSE_DEDUP_SECONDS = 5.0
+# Each M-SEARCH answer is sent twice.  UDP is unreliable and some clients
+# (for example Jellybox and Feishin) drop answers that arrive in a burst,
+# so repeating the answer increases the chance that the renderer is found.
+SSDP_SEARCH_RESPONSE_COUNT = 2
+SSDP_SEARCH_RESPONSE_DELAY = 0.15
 
 # The SSDP responder sends its answers and announcements over unreliable
 # UDP multicast.  A rate limit keeps the bursts small, so that clients that
@@ -55,7 +54,8 @@ class SsdpServer:
 
     def __init__(self, advertise_host: str = '127.0.0.1', http_port: int = 49443,
                  device_type: str = MEDIA_RENDERER_DEVICE_TYPE, port: int = SSDP_PORT,
-                 mx: float = 0.0, notify_count: int = None, notify_delay: float = None) -> None:
+                 mx: float = 0.0, notify_count: int = None, notify_delay: float = None,
+                 search_response_count: int = None, search_response_delay: float = None) -> None:
         self.advertise_host = advertise_host
         self.http_port = http_port
         self.device_type = device_type
@@ -76,6 +76,20 @@ class SsdpServer:
         self.notify_count = max(0, int(notify_count))
         self.notify_delay = max(0.0, float(notify_delay))
 
+        if search_response_count is None:
+            try:
+                search_response_count = int(os.environ.get('NAVI_ALEXA_RENDERER_SSDP_SEARCH_COUNT', str(SSDP_SEARCH_RESPONSE_COUNT)))
+            except (TypeError, ValueError):
+                search_response_count = SSDP_SEARCH_RESPONSE_COUNT
+        if search_response_delay is None:
+            try:
+                search_response_delay = float(os.environ.get('NAVI_ALEXA_RENDERER_SSDP_SEARCH_DELAY', str(SSDP_SEARCH_RESPONSE_DELAY)))
+            except (TypeError, ValueError):
+                search_response_delay = SSDP_SEARCH_RESPONSE_DELAY
+
+        self.search_response_count = max(0, int(search_response_count))
+        self.search_response_delay = max(0.0, float(search_response_delay))
+
         # The search targets the renderers answer to.  A client that searches
         # for "ssdp:all" expects one answer per target, and clients like
         # Supersonic only accept the devices that announce their AVTransport
@@ -94,12 +108,6 @@ class SsdpServer:
         self._renderers = []
         self._lock = threading.Lock()
         self.on_search = None
-
-        # Deduplication of the M-SEARCH answers.  A client that searches
-        # repeatedly gets the same (ST, USN) answer over and over, which
-        # floods the WLAN and makes some clients discard the answers.
-        self._response_seen = {}
-        self._response_seen_lock = threading.Lock()
 
         # Rate limit of the outgoing SSDP packets.  UDP multicast is
         # unreliable and bursts of answers are dropped by clients that
@@ -455,7 +463,9 @@ class SsdpServer:
         The answers are sent per unicast to the source address and port of
         the search request.  Each answer is delayed by a random value of up
         to MX seconds, so that the answers of several renderers do not
-        arrive as a burst.
+        arrive as a burst.  Every answer is repeated so that a single lost
+        UDP packet does not hide a renderer from clients like Jellybox or
+        Feishin.
         """
 
         last = 0.0
@@ -465,7 +475,12 @@ class SsdpServer:
             last = delay
             response = self._build_search_response(target, renderer)
             logger.debug('The SSDP response is: %s', response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
-            self._sendto(response, address)
+            # Sende jede Antwort mehrfach, damit ein verlorenes UDP-Paket
+            # den Renderer nicht vor Clients wie Jellybox oder Feishin verbirgt.
+            for copy in range(self.search_response_count):
+                self._sendto(response, address)
+                if copy < self.search_response_count - 1 and self.search_response_delay > 0:
+                    time.sleep(self.search_response_delay)
 
         if self.on_search:
             try:
@@ -492,8 +507,24 @@ class SsdpServer:
         if target == f'uuid:{udid.lower()}':
             return True
 
-        # A client can also search for one of the services of the renderer.
-        return target in {search_target.lower() for search_target in self.search_targets}
+        # Match device/service types ignoring the version number, so that a
+        # client searching for AVTransport:2 or AVTransport:3 is matched
+        # against the implemented AVTransport:1 service.  UPnP backward
+        # compatibility lets a device answer searches for lower versions; we
+        # answer those searches too, using the requested ST in the response.
+        target_base = self._base_type(target)
+        if target_base:
+            return any(target_base == self._base_type(known).lower() for known in self.search_targets)
+
+        return False
+
+    @staticmethod
+    def _base_type(st: str) -> str:
+        """Return the URN base without a trailing numeric version (:N)."""
+        base, _, version = st.rpartition(':')
+        if version.isdigit():
+            return base
+        return st
 
     def _build_search_response(self, search_target: str, renderer) -> bytes:
         location = f'http://{self.advertise_host}:{self.http_port}/description/{renderer.udid}.xml'
@@ -520,23 +551,16 @@ class SsdpServer:
         return '\r\n'.join(lines).encode('utf-8')
 
     def _sendto(self, payload: bytes, address) -> None:
-        """Send a packet, applying the dedup and rate limits.
+        """Send a packet, applying the rate limit.
 
-        The dedup window suppresses the same (ST, USN) answer that a client
-        sends repeatedly, so that the WLAN is not flooded.  The rate limit
-        spreads the outgoing packets out, so that clients that discard
-        packets when they arrive too quickly still receive the answers.
+        The rate limit spreads the outgoing packets out, so that clients that
+        discard packets when they arrive too quickly still receive the answers.
+        Duplicate searches are suppressed by the per-source dedup in the
+        message handler, so every answer that reaches this method is sent.
         """
 
         if not self._sockets:
             return
-
-        # Search responses carry an ST header, so they can be deduplicated
-        # by (ST, USN).  Announcements (NOTIFY) have no ST header and are
-        # not deduplicated, because repeating them is intentional.
-        if self._has_st_header(payload):
-            if not self._should_send(payload):
-                return
 
         self._wait_for_rate_limit()
 
@@ -553,52 +577,6 @@ class SsdpServer:
             candidates[0].sendto(payload, address)
         except OSError as error:
             logger.debug('Could not send the SSDP response to %s: %s', address, error)
-
-    @staticmethod
-    def _has_st_header(payload: bytes) -> bool:
-        text = payload.decode('utf-8', 'replace')
-        return any(line.upper().startswith('ST:') for line in text.split('\r\n'))
-
-    def _response_key(self, payload: bytes) -> str:
-        """Return a stable key for a response so that duplicates are suppressed.
-
-        The key is built from the ST and USN headers, so that the same
-        renderer answering the same search target is only sent once per
-        deduplication window, even when the client searches repeatedly.
-        """
-
-        text = payload.decode('utf-8', 'replace')
-        st = ''
-        usn = ''
-
-        for line in text.split('\r\n'):
-            if line.upper().startswith('ST:'):
-                st = line.split(':', 1)[1].strip().lower()
-            elif line.upper().startswith('USN:'):
-                usn = line.split(':', 1)[1].strip().lower()
-
-        return f'{st}|{usn}'
-
-    def _should_send(self, payload: bytes) -> bool:
-        """Return True when the response has not been sent in the dedup window."""
-
-        key = self._response_key(payload)
-        now = time.monotonic()
-
-        with self._response_seen_lock:
-            self._purge_response_seen(now)
-            last = self._response_seen.get(key)
-            if last is not None and now - last < SSDP_RESPONSE_DEDUP_SECONDS:
-                return False
-            self._response_seen[key] = now
-            return True
-
-    def _purge_response_seen(self, now: float) -> None:
-        """Drop dedup entries that are older than the dedup window."""
-
-        cutoff = now - SSDP_RESPONSE_DEDUP_SECONDS
-        for key in [key for key, last in self._response_seen.items() if last < cutoff]:
-            del self._response_seen[key]
 
     def _wait_for_rate_limit(self) -> None:
         """Sleep until the rate limit allows another outgoing packet.

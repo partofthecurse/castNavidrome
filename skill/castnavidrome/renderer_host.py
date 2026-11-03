@@ -36,6 +36,8 @@ DEFAULT_MIN_REFRESH_SECONDS = 60
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 DEFAULT_DISABLE_REFRESH = 'true'
 DEFAULT_SSDP_MX = 2.0
+DEFAULT_SSDP_SEARCH_COUNT = 2
+DEFAULT_SSDP_SEARCH_DELAY = 0.15
 DEFAULT_CLIENT_TIMEOUT = 0.0
 
 # The prefix of the renderer names is optional.  Without it the renderers
@@ -434,7 +436,9 @@ class RendererHost:
         self.registry = RendererRegistry(self.state_file)
         self.server = RendererServer(port=self.port, advertise_host=self.advertise_host)
         self.ssdp = SsdpServer(advertise_host=self.advertise_host, http_port=self.port,
-                               mx=float(self.env.get('NAVI_ALEXA_RENDERER_SSDP_MX', str(DEFAULT_SSDP_MX))))
+                               mx=float(self.env.get('NAVI_ALEXA_RENDERER_SSDP_MX', str(DEFAULT_SSDP_MX))),
+                               search_response_count=int(self.env.get('NAVI_ALEXA_RENDERER_SSDP_SEARCH_COUNT', str(DEFAULT_SSDP_SEARCH_COUNT))),
+                               search_response_delay=float(self.env.get('NAVI_ALEXA_RENDERER_SSDP_SEARCH_DELAY', str(DEFAULT_SSDP_SEARCH_DELAY))))
         self.controller = AlexaRendererController(
             cookie_file=self.cookie_file,
             domain=self.domain,

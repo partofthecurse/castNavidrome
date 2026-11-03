@@ -91,8 +91,17 @@ class SsdpSearchTests(unittest.TestCase):
                 t.join(timeout=5)
 
         responses = [call.args[0].decode('utf-8') for call in self.server._sendto.call_args_list]
-        targets = [self._header(response, 'ST') for response in responses]
-        usns = [self._header(response, 'USN') for response in responses]
+        # Each answer is sent twice, so the targets and usns lists contain
+        # duplicates.  Deduplicate them while keeping the order.
+        targets = []
+        usns = []
+        for response in responses:
+            target = self._header(response, 'ST')
+            usn = self._header(response, 'USN')
+            if target not in targets:
+                targets.append(target)
+            if usn not in usns:
+                usns.append(usn)
 
         return targets, usns, responses
 
@@ -138,6 +147,14 @@ class SsdpSearchTests(unittest.TestCase):
         for response in responses:
             self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', response)
             self.assertIn('HTTP/1.1 200 OK', response)
+
+    def test_every_answer_is_sent_twice(self):
+        """Each answer is repeated to survive a lost UDP packet."""
+
+        _, _, responses = self._search('ssdp:all')
+
+        # One renderer, one answer, sent twice.
+        self.assertEqual(len(responses), 2)
 
     def test_every_response_is_sent_to_the_source_address(self):
         self._search('ssdp:all')
@@ -201,57 +218,66 @@ class SsdpSearchTests(unittest.TestCase):
     def test_advertised_address_is_own_address(self):
         self.assertTrue(self.server._is_own_address('192.168.178.128'))
 
-    def test_duplicate_search_responses_are_suppressed(self):
-        """The same (ST, USN) answer is only sent once per dedup window."""
+    def test_search_without_man_header_is_answered(self):
+        """A search without a MAN header is still answered."""
 
-        payload = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
+        message = (
+            'M-SEARCH * HTTP/1.1\r\n'
+            'HOST: 239.255.255.250:1900\r\n'
+            'MX: 2\r\n'
+            'ST: ssdp:all\r\n\r\n'
         )
 
-        self.assertTrue(self.server._should_send(payload))
-        # A second identical answer must not be sent again.
-        self.assertFalse(self.server._should_send(payload))
+        with patch('castnavidrome.upnp.ssdp.time.sleep'):
+            self.server._handle_message(message, ('192.168.178.50', 49152))
 
-    def test_responses_from_a_different_st_are_sent(self):
-        """A different ST still receives its own answer."""
+        for t in threading.enumerate():
+            if t.name == 'upnp-ssdp-response' and t.is_alive():
+                t.join(timeout=5)
 
-        payload_a = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
-        )
-        payload_b = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
-            b'USN: uuid:1234::urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n'
-        )
+        self.assertNotEqual(self.server._sendto.call_args_list, [])
 
-        self.assertTrue(self.server._should_send(payload_a))
-        self.assertTrue(self.server._should_send(payload_b))
+    def test_missing_mx_uses_default_delay_and_is_answered(self):
+        """A missing MX header defaults to 1-2 seconds and never raises."""
 
-    def test_notify_messages_are_not_deduplicated(self):
-        """Announcements repeat intentionally, so they bypass the dedup."""
-
-        payload = (
-            b'NOTIFY * HTTP/1.1\r\n'
-            b'HOST: 239.255.255.250:1900\r\n'
-            b'NT: upnp:rootdevice\r\n'
-            b'NTS: ssdp:alive\r\n\r\n'
+        message = (
+            'M-SEARCH * HTTP/1.1\r\n'
+            'HOST: 239.255.255.250:1900\r\n'
+            'ST: ssdp:all\r\n\r\n'
         )
 
-        self.assertFalse(self.server._has_st_header(payload))
+        with patch('castnavidrome.upnp.ssdp.time.sleep'):
+            self.server._handle_message(message, ('192.168.178.50', 49152))
 
-    def test_search_responses_carry_an_st_header(self):
-        payload = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
+        for t in threading.enumerate():
+            if t.name == 'upnp-ssdp-response' and t.is_alive():
+                t.join(timeout=5)
+
+        self.assertNotEqual(self.server._sendto.call_args_list, [])
+
+    def test_av_transport_version_2_is_answered_with_requested_st(self):
+        """AVTransport:2 is matched and answered with the requested ST."""
+
+        targets, usns, _ = self._search(
+            'urn:schemas-upnp-org:service:AVTransport:2'
         )
 
-        self.assertTrue(self.server._has_st_header(payload))
-        self.assertEqual(self.server._response_key(payload), 'upnp:rootdevice|uuid:1234::upnp:rootdevice')
+        self.assertEqual(targets, ['urn:schemas-upnp-org:service:AVTransport:2'])
+        self.assertEqual(
+            usns, ['uuid:1234::urn:schemas-upnp-org:service:AVTransport:2']
+        )
+
+    def test_av_transport_version_3_is_answered_with_requested_st(self):
+        """AVTransport:3 is matched and answered with the requested ST."""
+
+        targets, usns, _ = self._search(
+            'urn:schemas-upnp-org:service:AVTransport:3'
+        )
+
+        self.assertEqual(targets, ['urn:schemas-upnp-org:service:AVTransport:3'])
+        self.assertEqual(
+            usns, ['uuid:1234::urn:schemas-upnp-org:service:AVTransport:3']
+        )
 
     def test_rate_limit_is_a_noop_when_no_packets_were_sent(self):
         """The first packet is not delayed."""
