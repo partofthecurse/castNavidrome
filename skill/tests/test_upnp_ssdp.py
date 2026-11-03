@@ -8,7 +8,11 @@ from castnavidrome.upnp.constants import (
     MEDIA_RENDERER_DEVICE_TYPE,
     RENDERINGCONTROL_SERVICE_TYPE,
 )
-from castnavidrome.upnp.ssdp import SsdpServer, SSDP_SEARCH_TARGET
+from castnavidrome.upnp.ssdp import (
+    SsdpServer,
+    SSDP_SEARCH_TARGET,
+    SSDP_MAX_BURST,
+)
 
 
 class FakeRenderer:
@@ -185,6 +189,90 @@ class SsdpSearchTests(unittest.TestCase):
 
     def test_advertised_address_is_own_address(self):
         self.assertTrue(self.server._is_own_address('192.168.178.128'))
+
+    def test_duplicate_search_responses_are_suppressed(self):
+        """The same (ST, USN) answer is only sent once per dedup window."""
+
+        payload = (
+            b'HTTP/1.1 200 OK\r\n'
+            b'ST: upnp:rootdevice\r\n'
+            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
+        )
+
+        self.assertTrue(self.server._should_send(payload))
+        # A second identical answer must not be sent again.
+        self.assertFalse(self.server._should_send(payload))
+
+    def test_responses_from_a_different_st_are_sent(self):
+        """A different ST still receives its own answer."""
+
+        payload_a = (
+            b'HTTP/1.1 200 OK\r\n'
+            b'ST: upnp:rootdevice\r\n'
+            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
+        )
+        payload_b = (
+            b'HTTP/1.1 200 OK\r\n'
+            b'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
+            b'USN: uuid:1234::urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n'
+        )
+
+        self.assertTrue(self.server._should_send(payload_a))
+        self.assertTrue(self.server._should_send(payload_b))
+
+    def test_notify_messages_are_not_deduplicated(self):
+        """Announcements repeat intentionally, so they bypass the dedup."""
+
+        payload = (
+            b'NOTIFY * HTTP/1.1\r\n'
+            b'HOST: 239.255.255.250:1900\r\n'
+            b'NT: upnp:rootdevice\r\n'
+            b'NTS: ssdp:alive\r\n\r\n'
+        )
+
+        self.assertFalse(self.server._has_st_header(payload))
+
+    def test_search_responses_carry_an_st_header(self):
+        payload = (
+            b'HTTP/1.1 200 OK\r\n'
+            b'ST: upnp:rootdevice\r\n'
+            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
+        )
+
+        self.assertTrue(self.server._has_st_header(payload))
+        self.assertEqual(self.server._response_key(payload), 'upnp:rootdevice|uuid:1234::upnp:rootdevice')
+
+    def test_rate_limit_is_a_noop_when_no_packets_were_sent(self):
+        """The first packet is not delayed."""
+
+        from unittest.mock import patch
+
+        sleeps = []
+
+        with patch('castnavidrome.upnp.ssdp.time.sleep', side_effect=lambda s: sleeps.append(s)):
+            self.server._wait_for_rate_limit()
+
+        self.assertEqual(sleeps, [])
+
+    def test_rate_limit_sleeps_when_the_burst_is_full(self):
+        """Once the burst cap is reached, the next packet is delayed."""
+
+        from unittest.mock import patch
+
+        sleeps = []
+
+        # Fill the burst with SSDP_MAX_BURST packets, then verify that the
+        # next packet has to wait until the oldest one leaves the window.
+        times = [0.0] * (SSDP_MAX_BURST + 1) + [1.0, 1.0]
+
+        with patch('castnavidrome.upnp.ssdp.time.monotonic', side_effect=times), \
+             patch('castnavidrome.upnp.ssdp.time.sleep', side_effect=lambda s: sleeps.append(s)):
+            for _ in range(SSDP_MAX_BURST):
+                self.server._wait_for_rate_limit()
+            self.server._wait_for_rate_limit()
+
+        self.assertGreater(len(sleeps), 0)
+        self.assertGreaterEqual(min(sleeps), 0.0)
 
 
 class SsdpAnnounceTests(unittest.TestCase):

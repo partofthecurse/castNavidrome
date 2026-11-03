@@ -36,6 +36,19 @@ SERVER_HEADER = 'Linux/5.0 UPnP/1.1 castNavidrome/1.0'
 SSDP_NOTIFY_COUNT = 3
 SSDP_NOTIFY_DELAY = 0.4
 
+# A client that searches for "ssdp:all" gets one answer per search target
+# of every renderer.  A renderer with several devices therefore answers a
+# single M-SEARCH with a dozen responses.  The deduplication window below
+# suppresses the duplicate answers that a client sends repeatedly, so that
+# the WLAN is not flooded with the same (ST, USN) pair over and over.
+SSDP_RESPONSE_DEDUP_SECONDS = 5.0
+
+# The SSDP responder sends its answers and announcements over unreliable
+# UDP multicast.  A rate limit keeps the bursts small, so that clients that
+# discard packets when they arrive too quickly still receive the answers.
+SSDP_MAX_PACKETS_PER_SECOND = 8.0
+SSDP_MAX_BURST = 4
+
 
 class SsdpServer:
     """Announces the media renderers via SSDP."""
@@ -81,6 +94,18 @@ class SsdpServer:
         self._renderers = []
         self._lock = threading.Lock()
         self.on_search = None
+
+        # Deduplication of the M-SEARCH answers.  A client that searches
+        # repeatedly gets the same (ST, USN) answer over and over, which
+        # floods the WLAN and makes some clients discard the answers.
+        self._response_seen = {}
+        self._response_seen_lock = threading.Lock()
+
+        # Rate limit of the outgoing SSDP packets.  UDP multicast is
+        # unreliable and bursts of answers are dropped by clients that
+        # cannot keep up, so the answers are spread out over time.
+        self._packet_times = []
+        self._packet_lock = threading.Lock()
 
     #
     # Renderer management
@@ -480,8 +505,25 @@ class SsdpServer:
         return '\r\n'.join(lines).encode('utf-8')
 
     def _sendto(self, payload: bytes, address) -> None:
+        """Send a packet, applying the dedup and rate limits.
+
+        The dedup window suppresses the same (ST, USN) answer that a client
+        sends repeatedly, so that the WLAN is not flooded.  The rate limit
+        spreads the outgoing packets out, so that clients that discard
+        packets when they arrive too quickly still receive the answers.
+        """
+
         if not self._sockets:
             return
+
+        # Search responses carry an ST header, so they can be deduplicated
+        # by (ST, USN).  Announcements (NOTIFY) have no ST header and are
+        # not deduplicated, because repeating them is intentional.
+        if self._has_st_header(payload):
+            if not self._should_send(payload):
+                return
+
+        self._wait_for_rate_limit()
 
         host = address[0]
         if '.' in host:
@@ -496,6 +538,91 @@ class SsdpServer:
             candidates[0].sendto(payload, address)
         except OSError as error:
             logger.debug('Could not send the SSDP response to %s: %s', address, error)
+
+    @staticmethod
+    def _has_st_header(payload: bytes) -> bool:
+        text = payload.decode('utf-8', 'replace')
+        return any(line.upper().startswith('ST:') for line in text.split('\r\n'))
+
+    def _response_key(self, payload: bytes) -> str:
+        """Return a stable key for a response so that duplicates are suppressed.
+
+        The key is built from the ST and USN headers, so that the same
+        renderer answering the same search target is only sent once per
+        deduplication window, even when the client searches repeatedly.
+        """
+
+        text = payload.decode('utf-8', 'replace')
+        st = ''
+        usn = ''
+
+        for line in text.split('\r\n'):
+            if line.upper().startswith('ST:'):
+                st = line.split(':', 1)[1].strip().lower()
+            elif line.upper().startswith('USN:'):
+                usn = line.split(':', 1)[1].strip().lower()
+
+        return f'{st}|{usn}'
+
+    def _should_send(self, payload: bytes) -> bool:
+        """Return True when the response has not been sent in the dedup window."""
+
+        key = self._response_key(payload)
+        now = time.monotonic()
+
+        with self._response_seen_lock:
+            self._purge_response_seen(now)
+            last = self._response_seen.get(key)
+            if last is not None and now - last < SSDP_RESPONSE_DEDUP_SECONDS:
+                return False
+            self._response_seen[key] = now
+            return True
+
+    def _purge_response_seen(self, now: float) -> None:
+        """Drop dedup entries that are older than the dedup window."""
+
+        cutoff = now - SSDP_RESPONSE_DEDUP_SECONDS
+        for key in [key for key, last in self._response_seen.items() if last < cutoff]:
+            del self._response_seen[key]
+
+    def _wait_for_rate_limit(self) -> None:
+        """Sleep until the rate limit allows another outgoing packet.
+
+        At most ``SSDP_MAX_PACKETS_PER_SECOND`` packets are sent per second,
+        with a hard burst cap of ``SSDP_MAX_BURST``.  The delay is computed
+        from the oldest packet still in the window, so that the spacing stays
+        stable even when several packets arrive at once.
+        """
+
+        if SSDP_MAX_PACKETS_PER_SECOND <= 0:
+            return
+
+        now = time.monotonic()
+        with self._packet_lock:
+            self._packet_times = [t for t in self._packet_times if now - t < 1.0]
+            if not self._packet_times:
+                self._packet_times.append(now)
+                return
+
+            if len(self._packet_times) >= SSDP_MAX_BURST:
+                # The burst is full, wait for the oldest packet to leave the window.
+                sleep_for = max(0.0, 1.0 - (now - self._packet_times[0]))
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                    now = time.monotonic()
+                    self._packet_times = [t for t in self._packet_times if now - t < 1.0]
+
+            if len(self._packet_times) >= SSDP_MAX_PACKETS_PER_SECOND:
+                # Spread the packets so that the average rate stays at the limit.
+                oldest = self._packet_times[0]
+                next_allowed = oldest + len(self._packet_times) / SSDP_MAX_PACKETS_PER_SECOND
+                sleep_for = max(0.0, next_allowed - now)
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                    now = time.monotonic()
+                    self._packet_times = [t for t in self._packet_times if now - t < 1.0]
+
+            self._packet_times.append(now)
 
     #
     # Announcements
