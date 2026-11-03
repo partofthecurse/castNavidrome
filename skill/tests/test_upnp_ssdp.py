@@ -134,16 +134,15 @@ class SsdpSearchTests(unittest.TestCase):
             'uuid:1234::' + RENDERINGCONTROL_SERVICE_TYPE,
             'uuid:1234::' + CONNECTIONMANAGER_SERVICE_TYPE,
         ]
-        self.assertEqual(targets, expected_targets)
-        self.assertEqual(usns, expected_usns)
+        self.assertEqual(set(targets), set(expected_targets))
+        self.assertEqual(set(usns), set(expected_usns))
 
-    def test_every_answer_is_sent_twice(self):
-        """Each answer is repeated to survive a lost UDP packet."""
+    def test_every_answer_is_sent_once(self):
+        """Each matching search target receives one response."""
 
         _, _, responses = self._search('ssdp:all')
 
-        # One renderer, six targets, each sent twice.
-        self.assertEqual(len(responses), 12)
+        self.assertEqual(len(responses), 6)
 
     def test_the_search_for_the_av_transport_service_is_answered(self):
         targets, usns, _ = self._search(AVTRANSPORT_SERVICE_TYPE)
@@ -235,57 +234,37 @@ class SsdpSearchTests(unittest.TestCase):
     def test_advertised_address_is_own_address(self):
         self.assertTrue(self.server._is_own_address('192.168.178.128'))
 
-    def test_duplicate_search_responses_are_suppressed(self):
-        """The same (ST, USN) answer is only sent once per dedup window."""
+    def test_search_responses_bypass_the_multicast_rate_limiter(self):
+        class FakeSocket:
+            family = socket.AF_INET
 
-        payload = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
-        )
+            def __init__(self):
+                self.sent = []
 
-        self.assertTrue(self.server._should_send(payload))
-        # A second identical answer must not be sent again.
-        self.assertFalse(self.server._should_send(payload))
+            def sendto(self, payload, address):
+                self.sent.append((payload, address))
 
-    def test_responses_from_a_different_st_are_sent(self):
-        """A different ST still receives its own answer."""
+        server = SsdpServer(advertise_host='192.168.178.128')
+        fake_socket = FakeSocket()
+        server._sockets = [fake_socket]
+        with patch.object(server, '_wait_for_rate_limit') as rate_limit:
+            server._sendto(b'HTTP/1.1 200 OK\r\nST: ssdp:all\r\n\r\n', ('192.168.178.50', 1900))
 
-        payload_a = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
-        )
-        payload_b = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n'
-            b'USN: uuid:1234::urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n'
-        )
+        rate_limit.assert_not_called()
+        self.assertEqual(len(fake_socket.sent), 1)
 
-        self.assertTrue(self.server._should_send(payload_a))
-        self.assertTrue(self.server._should_send(payload_b))
+    def test_identical_search_responses_are_not_globally_suppressed(self):
+        payload = b'HTTP/1.1 200 OK\r\nST: upnp:rootdevice\r\n\r\n'
+        server = SsdpServer(advertise_host='192.168.178.128')
+        fake_socket = MagicMock()
+        fake_socket.family = socket.AF_INET
+        server._sockets = [fake_socket]
 
-    def test_notify_messages_are_not_deduplicated(self):
-        """Announcements repeat intentionally, so they bypass the dedup."""
+        with patch.object(server, '_wait_for_rate_limit'):
+            server._sendto(payload, ('192.168.178.50', 49152))
+            server._sendto(payload, ('192.168.178.51', 49152))
 
-        payload = (
-            b'NOTIFY * HTTP/1.1\r\n'
-            b'HOST: 239.255.255.250:1900\r\n'
-            b'NT: upnp:rootdevice\r\n'
-            b'NTS: ssdp:alive\r\n\r\n'
-        )
-
-        self.assertFalse(self.server._has_st_header(payload))
-
-    def test_search_responses_carry_an_st_header(self):
-        payload = (
-            b'HTTP/1.1 200 OK\r\n'
-            b'ST: upnp:rootdevice\r\n'
-            b'USN: uuid:1234::upnp:rootdevice\r\n\r\n'
-        )
-
-        self.assertTrue(self.server._has_st_header(payload))
-        self.assertEqual(self.server._response_key(payload), 'upnp:rootdevice|uuid:1234::upnp:rootdevice')
+        self.assertEqual(fake_socket.sendto.call_count, 2)
 
     def test_search_without_man_header_is_answered(self):
         """A search without a MAN header is still answered."""

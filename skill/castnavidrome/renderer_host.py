@@ -36,7 +36,7 @@ DEFAULT_MIN_REFRESH_SECONDS = 60
 DEFAULT_STATE_FILE = '/var/lib/castnavidrome/renderer-devices.json'
 DEFAULT_DISABLE_REFRESH = 'true'
 DEFAULT_SSDP_MX = 2.0
-DEFAULT_SSDP_SEARCH_COUNT = 2
+DEFAULT_SSDP_SEARCH_COUNT = 1
 DEFAULT_SSDP_SEARCH_DELAY = 0.15
 DEFAULT_CLIENT_TIMEOUT = 0.0
 
@@ -105,8 +105,6 @@ class AlexaRendererController:
         device = renderer.device
         if not device:
             raise RendererCommandError('The Alexa device of this renderer is unknown.')
-        if not device.get('online'):
-            raise RendererCommandError('The Alexa device is offline.')
         return device
 
     def _send(self, renderer: MediaRenderer, text: str) -> None:

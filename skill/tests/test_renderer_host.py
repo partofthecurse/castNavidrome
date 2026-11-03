@@ -261,6 +261,14 @@ def make_controller(announce='explicit'):
 
 
 class ControllerAnnounceTests(unittest.TestCase):
+    def test_a_stale_offline_flag_does_not_block_a_control_command(self):
+        controller, client, renderer = make_controller()
+        renderer.device['online'] = False
+
+        controller.pause(renderer)
+
+        self.assertEqual(client.sent, ['frage zero mukke, pausiere'])
+
     def test_a_track_that_a_user_starts_is_announced(self):
         controller, client, renderer = make_controller()
 
