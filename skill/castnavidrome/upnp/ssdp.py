@@ -405,14 +405,26 @@ class SsdpServer:
                      search_target, address[0], address[1], len(matches))
         logger.debug('The SSDP search was: %s', message.replace('\\r\\n', ' | '))
 
-        # Exactly one answer for the requested search target per matching
-        # renderer.  A search for "ssdp:all" is answered with one response
-        # per renderer using "ssdp:all" as the ST, instead of one response
-        # per service, so that the WLAN is not flooded with duplicates.
+        # A search for "ssdp:all" is answered with one response per renderer
+        # and per service/device type, so that clients like Symfonium can
+        # discover the renderer through any of its advertised targets.
+        # Any other search target is answered with exactly that target.
         replies = []
         for renderer in matches:
             delay = random.uniform(0.0, mx) if mx > 0 else 0.0
-            replies.append((delay, renderer, search_target))
+            if search_target == SSDP_ALL:
+                targets_for_this_renderer = [
+                    SSDP_ROOT_DEVICE,
+                    f'uuid:{renderer.udid}',
+                    MEDIA_RENDERER_DEVICE_TYPE,
+                    AVTRANSPORT_SERVICE_TYPE,
+                    RENDERINGCONTROL_SERVICE_TYPE,
+                    CONNECTIONMANAGER_SERVICE_TYPE,
+                ]
+            else:
+                targets_for_this_renderer = [search_target]
+            for target in targets_for_this_renderer:
+                replies.append((delay, renderer, target))
 
         if not replies:
             return

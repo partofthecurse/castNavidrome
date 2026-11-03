@@ -11,6 +11,7 @@ from castnavidrome.upnp.constants import (
 )
 from castnavidrome.upnp.ssdp import (
     SsdpServer,
+    SSDP_ROOT_DEVICE,
     SSDP_SEARCH_TARGET,
     SSDP_MAX_BURST,
 )
@@ -113,12 +114,36 @@ class SsdpSearchTests(unittest.TestCase):
         return ''
 
     def test_the_search_for_all_answers_with_one_response_per_renderer(self):
-        """A search for "ssdp:all" gets one answer per renderer, not per service."""
+        """A search for "ssdp:all" gets one answer per target per renderer."""
 
         targets, usns, _ = self._search('ssdp:all')
 
-        self.assertEqual(targets, [SSDP_SEARCH_TARGET])
-        self.assertEqual(usns, ['uuid:1234::ssdp:all'])
+        expected_targets = [
+            SSDP_ROOT_DEVICE,
+            'uuid:1234',
+            MEDIA_RENDERER_DEVICE_TYPE,
+            AVTRANSPORT_SERVICE_TYPE,
+            RENDERINGCONTROL_SERVICE_TYPE,
+            CONNECTIONMANAGER_SERVICE_TYPE,
+        ]
+        expected_usns = [
+            'uuid:1234::upnp:rootdevice',
+            'uuid:1234',
+            'uuid:1234::' + MEDIA_RENDERER_DEVICE_TYPE,
+            'uuid:1234::' + AVTRANSPORT_SERVICE_TYPE,
+            'uuid:1234::' + RENDERINGCONTROL_SERVICE_TYPE,
+            'uuid:1234::' + CONNECTIONMANAGER_SERVICE_TYPE,
+        ]
+        self.assertEqual(targets, expected_targets)
+        self.assertEqual(usns, expected_usns)
+
+    def test_every_answer_is_sent_twice(self):
+        """Each answer is repeated to survive a lost UDP packet."""
+
+        _, _, responses = self._search('ssdp:all')
+
+        # One renderer, six targets, each sent twice.
+        self.assertEqual(len(responses), 12)
 
     def test_the_search_for_the_av_transport_service_is_answered(self):
         targets, usns, _ = self._search(AVTRANSPORT_SERVICE_TYPE)
@@ -147,14 +172,6 @@ class SsdpSearchTests(unittest.TestCase):
         for response in responses:
             self.assertIn('LOCATION: http://192.168.178.128:49443/description/1234.xml', response)
             self.assertIn('HTTP/1.1 200 OK', response)
-
-    def test_every_answer_is_sent_twice(self):
-        """Each answer is repeated to survive a lost UDP packet."""
-
-        _, _, responses = self._search('ssdp:all')
-
-        # One renderer, one answer, sent twice.
-        self.assertEqual(len(responses), 2)
 
     def test_every_response_is_sent_to_the_source_address(self):
         self._search('ssdp:all')
