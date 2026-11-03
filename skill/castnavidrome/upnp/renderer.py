@@ -757,8 +757,8 @@ class MediaRenderer:
 
     def get_protocol_info(self) -> dict:
         return {
-            'SourceProtocolInfo': 'http-get:*:audio/mpeg:*',
-            'SinkProtocolInfo': 'http-get:*:audio/mpeg:*',
+            'SourceProtocolInfo': '',
+            'SinkProtocolInfo': 'http-get:*:audio/mpeg:*,http-get:*:audio/flac:*,http-get:*:audio/mp4:*,http-get:*:audio/aac:*,http-get:*:audio/ogg:*,http-get:*:audio/x-flac:*,http-get:*:audio/wav:*',
         }
 
     def get_current_connection_ids(self) -> dict:
@@ -768,7 +768,7 @@ class MediaRenderer:
         return {
             'RcsID': '0',
             'AVTransportID': '0',
-            'ProtocolInfo': 'http-get:*:audio/mpeg:*',
+            'ProtocolInfo': '',
             'PeerConnectionManager': '',
             'PeerConnectionID': '-1',
             'Direction': 'Input',
