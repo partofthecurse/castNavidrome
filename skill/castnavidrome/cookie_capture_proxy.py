@@ -166,12 +166,93 @@ class AlexaCookieCaptureProxy:
     def has_csrf(self):
         return any(name.lower() == 'csrf' for name in self.cookies())
 
+    async def _fetch_alexa_csrf(self) -> bool:
+        """Request the Alexa domain to trigger Amazon to set the csrf cookie.
+
+        Amazon sets the ``csrf`` cookie only on a subsequent request to the
+        Alexa domain, not during the login flow itself.  After a successful
+        browser login we therefore fetch a page on the Alexa domain so that
+        the cookie jar receives the ``csrf`` cookie.
+
+        Cookies captured by the capture proxy are copied into the aiohttp
+        session so they are sent with the request.
+        """
+        if self._login is None:
+            logger.debug('_fetch_alexa_csrf: _login is None')
+            return False
+        session = self._login.session
+        if session is None:
+            logger.debug('_fetch_alexa_csrf: _login.session is None')
+            return False
+        try:
+            domain = getattr(self._login, 'url', 'amazon.com')
+            if domain.startswith('amazon.'):
+                tld = domain.split('amazon.')[-1]
+            else:
+                tld = domain
+            alexa_url = f'https://alexa.amazon.{tld}/api/language'
+
+            # Copy captured proxy cookies into the aiohttp session so they
+            # are sent with the Alexa request.
+            if self._proxy is not None:
+                proxy_cookie_dict = {}
+                try:
+                    proxy_cookie_dict = dict(self._proxy.session.cookies.items())
+                except AttributeError:
+                    for cookie in self._proxy.session.cookies.jar:
+                        proxy_cookie_dict[cookie.name] = cookie.value
+                if proxy_cookie_dict:
+                    session.cookie_jar.update_cookies(
+                        proxy_cookie_dict, URL(alexa_url)
+                    )
+                    logger.debug(
+                        '_fetch_alexa_csrf: copied %s proxy cookies into session',
+                        len(proxy_cookie_dict),
+                    )
+
+            logger.debug(
+                '_fetch_alexa_csrf: requesting %s (domain=%s)', alexa_url, domain
+            )
+            # Log cookies before the request
+            before = {
+                c.key: c.value
+                for c in session.cookie_jar
+                if c.key.lower() == 'csrf'
+            }
+            logger.debug('_fetch_alexa_csrf: cookies before: %s', before)
+            async with session.get(alexa_url, timeout=10) as resp:
+                await resp.read()
+            # Log cookies after the request
+            after = {
+                c.key: c.value
+                for c in session.cookie_jar
+                if c.key.lower() == 'csrf'
+            }
+            logger.debug('_fetch_alexa_csrf: cookies after: %s', after)
+            logger.debug(
+                '_fetch_alexa_csrf: response status=%s, url=%s',
+                resp.status,
+                resp.url,
+            )
+            return True
+        except Exception:
+            logger.exception('_fetch_alexa_csrf: request failed')
+            return False
+
     async def _validated_cookies(self):
         cookies = await self._read_cookies()
         if not any(name.lower() == 'csrf' for name in cookies):
             if not await self._login.get_csrf():
-                return {}
-            cookies = await self._read_cookies()
+                # alexapy's get_csrf() could not discover the csrf cookie.
+                # Amazon sets it only on a request to the Alexa domain, so try
+                # fetching the Alexa domain directly.
+                logger.debug(
+                    'get_csrf() did not find csrf; trying direct Alexa request'
+                )
+                await self._fetch_alexa_csrf()
+                cookies = await self._read_cookies()
+            else:
+                cookies = await self._read_cookies()
         if not any(name.lower() == 'csrf' for name in cookies):
             return {}
         if not await self._login.test_loggedin(

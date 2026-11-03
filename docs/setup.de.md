@@ -62,11 +62,11 @@ NAVI_PASS=dein-navidrome-passwort
 # ---- Alexa skill ----
 NAVI_ALEXA_API_KEY=ein-zufalliger-schluessel-zum-schutz-des-api
 
-# Amazon-Login (Login with Amazon / OAuth 2.0, empfohlen)
-NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.00000000000000000000000000000000
-NAVI_AMAZON_CLIENT_SECRET=dein-client-secret
-NAVI_AMAZON_REDIRECT_URI=https://castnavidrome.deine-domain.test/api/alexa/amazon/callback
-NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
+# Amazon Cookie Capture (Browser-Login, empfohlen)
+NAVI_ALEXA_CAPTURE_PASSWORD=dein-capture-ui-passwort
+NAVI_AMAZON_USER=deine-amazon-email
+NAVI_AMAZON_PASS=dein-amazon-passwort
+NAVI_AMAZON_TOTP_SECRET=dein-totp-secret-base32
 NAVI_ALEXA_DOMAIN=amazon.de
 
 # Cookie-Datei-Fallback (optional)
@@ -83,55 +83,29 @@ Trage den Ausgabestring als `NAVI_ALEXA_API_KEY` in `.env` ein.
 
 ---
 
-## 5. Login with Amazon (OAuth 2.0) — empfohlen
+## 5. Amazon Cookie Capture (Browser-Login, empfohlen)
 
-castNavidrome nutzt den offiziellen OAuth 2.0 Authorization Code Flow von Login with Amazon (LWA). Das ist die stabile, langfristige Methode, da Amazons klassische Anmeldeseite (`/ap/signin`) nicht mehr zuverlässig funktioniert.
+castNavidrome nutzt einen browserbasierten Cookie-Capture-Proxy (aufgebaut auf `alexapy`, derselben Bibliothek wie `alexa_media_player`), um eine gültige Alexa-Session zu erhalten. Du loggst dich über deinen normalen Webbrowser bei Amazon ein; der Proxy erfasst die Session-Cookies (inklusive des erforderlichen `csrf`-Cookies) und schreibt sie atomar in `NAVI_ALEXA_COOKIE_FILE`.
 
-### Schritt 1: Login with Amazon Security Profile anlegen
+### Schritt 1: Umgebungsvariablen in `.env` setzen
 
-1. Öffne die [Login with Amazon Console](https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html).
-2. Melde dich mit deinem Amazon-Entwicklerkonto an.
-3. Klicke auf **Create a New Security Profile**.
-4. Gib einen Namen ein (z. B. `castNavidrome`) und eine Beschreibung, dann klicke auf **Save**.
-5. Kopiere die angezeigten Werte:
-   - **Client ID** (beginnt mit `amzn1.application-oa2-client.`)
-   - **Client Secret**
-
-### Schritt 2: Redirect URI und Allowed Origin registrieren
-
-Damit Amazon den OAuth-Callback akzeptiert, muss die Redirect URI exakt im Security Profile hinterlegt sein:
-
-1. Öffne dein Security Profile in der Login with Amazon Console → Reiter **Web Settings**.
-2. Unter **Allowed Origins** füge deine öffentliche castNavidrome-Origin hinzu, z. B.:
-
-   ```
-   https://castnavidrome.deine-domain.test
-   ```
-
-3. Unter **Allowed Return URLs** füge hinzu:
-
-   ```
-   https://castnavidrome.deine-domain.test/api/alexa/amazon/callback
-   ```
-
-   Ersetze `castnavidrome.deine-domain.test` durch deine öffentliche castNavidrome-Domain (z. B. `https://castnavidrome.drake-aldebaran.ts.net`).
-4. Klicke auf **Save**.
-
-> **Wichtig:** Die Redirect URI muss exakt mit `NAVI_AMAZON_REDIRECT_URI` in deiner `.env` übereinstimmen — auch ein eventueller Trailing Slash muss identisch sein.
-
-### Schritt 3: Umgebungsvariablen in `.env` setzen
-
-Trage die Werte aus Schritt 1 in `.env` ein (siehe Abschnitt 4).
+```env
+# Amazon Login (Browser Capture Proxy)
+NAVI_ALEXA_CAPTURE_PASSWORD=dein-capture-ui-passwort
+NAVI_AMAZON_USER=deine-amazon-email
+NAVI_AMAZON_PASS=dein-amazon-passwort
+NAVI_AMAZON_TOTP_SECRET=dein-totp-secret-base32
+NAVI_ALEXA_DOMAIN=amazon.de
+```
 
 | Variable | Bedeutung |
 |----------|-----------|
-| `NAVI_AMAZON_CLIENT_ID` | Client ID aus dem LWA Security Profile |
-| `NAVI_AMAZON_CLIENT_SECRET` | Client Secret aus dem LWA Security Profile |
-| `NAVI_AMAZON_REDIRECT_URI` | Muss exakt unter „Allowed Return URLs“ in der Amazon Developer Console eingetragen sein |
-| `NAVI_AMAZON_TOKEN_FILE` | Pfad, in dem die OAuth-Tokens gespeichert werden |
+| `NAVI_ALEXA_CAPTURE_PASSWORD` | Passwort zum Schutz der Cookie-Capture-UI unter `/api/alexa/cookie/save` |
+| `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` | Optionale Amazon-Credentials; der Proxy füllt den Login-Formular automatisch aus (ein eventueller CAPTCHA/Verifizierungsschritt kann manuell absolviert werden) |
+| `NAVI_AMAZON_TOTP_SECRET` | Optionales TOTP-Secret; der Proxy füllt den 2FA-Code automatisch aus |
 | `NAVI_ALEXA_DOMAIN` | Amazon-Marktplatz, z. B. `amazon.de` (DE), `amazon.com` (US) |
 
-### Schritt 4: Container starten und OAuth-Token initialisieren
+### Schritt 2: Container starten und per Browser einloggen
 
 1. Baue und starte die Container:
 
@@ -139,31 +113,37 @@ Trage die Werte aus Schritt 1 in `.env` ein (siehe Abschnitt 4).
    docker compose up -d --build
    ```
 
-2. Rufe im Browser die Login-URL auf:
+2. Öffne die Cookie-Login-Seite im Browser (Basic Auth; der Benutzername ist beliebig, das Passwort ist `NAVI_ALEXA_CAPTURE_PASSWORD`):
 
    ```
-   https://castnavidrome.deine-domain.test/api/alexa/amazon/login
+   https://castnavidrome.deine-domain.test/api/alexa/cookie/save
    ```
 
-3. Melde dich mit deinem Amazon-Konto an und erteile castNavidrome die Berechtigung, auf deine Alexa-Geräte zuzugreifen.
-4. Du wirst zurück zu castNavidrome geleitet, und die Zugangstoken werden in `amazon_oauth_token.json` gespeichert.
-5. Ab jetzt funktioniert die Alexa API automatisch; abgelaufene Token werden im Hintergrund neu ausgestellt.
+3. Klicke auf der Seite auf die Proxy-URL, um die Amazon-Anmeldung im Capture-Proxy zu öffnen. Melde dich mit deinen Amazon-Anmeldeinformationen an (und TOTP, falls angefordert).
+
+4. Nach erfolgreichem Login erfasst der Proxy automatisch die Session-Cookies, validiert sie (erfragt die Alexa-Domain, damit Amazon das `csrf`-Cookie setzt) und schreibt sie in die Cookie-Datei. Der Status-Endpunkt zeigt an, ob die Session gültig ist:
+
+   ```bash
+   curl -u :dein-capture-passwort https://castnavidrome.deine-domain.test/api/alexa/cookie/proxy/status
+   ```
+
+   Achte auf `"login_success": true` und `"has_csrf": true`.
+
+5. Der Renderer-Container (`castnavidrome-renderer`) teilt sich dasselbe `./state`-Volume und übernimmt automatisch die Cookies aus `/var/lib/castnavidrome/alexa.cookies`.
 
 ### Startup-Check
 
-Beim Start des Haupt-Containers wird geprüft, ob gültige OAuth-Token vorliegen. Wenn nicht, erscheint eine Warnung im Log:
+Beim Start des Haupt-Containers wird geprüft, ob die Cookie-Datei eine gültige Alexa-Session enthält. Wenn nicht, erscheint eine Warnung im Log:
 
 ```
-No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login to authenticate before using the Alexa API.
+No valid Alexa session found. Open /api/alexa/cookie/save to capture cookies.
 ```
 
-Das ist nach dem ersten Start normal — erstelle die Token durch den Aufruf von `/api/alexa/amazon/login`.
+Das ist nach dem ersten Start normal — erfasse die Cookies über `/api/alexa/cookie/save`.
 
 ---
 
-## 6. Cookie-Datei-Fallback (optional)
-
-Falls der OAuth-Login nicht funktioniert (z. B. wegen CAPTCHA oder zusätzlicher Verifizierungsschritte), kann eine statische Alexa-Cookie-Datei verwendet werden.
+## 6. Alexa-Cookie-Datei (manueller Fallback)
 
 1. Melde dich bei https://alexa.amazon.de (oder .com) im Browser an.
 2. Exportiere das Session-Cookie (z. B. mit der Browser-Erweiterung "Export Cookies" oder über die Entwicklertools).
@@ -295,7 +275,7 @@ Der State (Amazon-Session, Renderer-Devices) liegt in `./state` und bleibt bei U
 | Problem | Lösung |
 |---|---|
 | Skill antwortet nicht | Prüfe `NAVI_SKILL_ID` und den Endpoint in der Alexa Console |
-| 401/403 bei Alexa | Cookie abgelaufen → `.secrets/alexa.cookies` neu exportieren oder OAuth-Login unter `/api/alexa/amazon/login` neu durchführen |
+| 401/403 bei Alexa | Cookie abgelaufen → `.secrets/alexa.cookies` neu erfassen unter `/api/alexa/cookie/save` |
 | Renderer nicht gefunden | `network_mode: host` prüfen, Firewall für SSDP (1900/udp) öffnen |
 | Tailscale verbindet nicht | `TS_AUTHKEY` prüfen, `/dev/net/tun` und `cap_add: net_admin` im Compose |
 | Lieder werden nicht abgespielt | Navidrome-URL und Credentials in `.env` prüfen, `docker compose logs castnavidrome` |

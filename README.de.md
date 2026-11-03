@@ -15,7 +15,7 @@ castNavidrome macht aus jedem Alexa-Gerät einen eigenen UPnP/DLNA-MediaRenderer
 - Wiedergabewarteschlange mischen, Lieder markieren/entmarkieren, Details des aktuellen Titels anzeigen.
 - Radio-Streams und Playlist-Entdeckung ("spiele mehr Playlists wie diese", "finde eine Playlist").
 - Hilfethemen und gesprochene Antworten in der Sprache des Echo-Geräts.
-- Optionaler Amazon OAuth 2.0 / Login with Amazon (empfohlen, ersetzt das manuelle Kopieren der Cookie-Datei und den TOTP-Login).
+- Amazon-Cookie-Login über Browser-Capture-Proxy (ersetzt das manuelle Kopieren der Cookie-Datei und den TOTP-Login).
 - Läuft direkt mit Python oder in einem Docker-Container (empfohlen).
 
 ## Sprachen
@@ -84,10 +84,16 @@ services:
       - NAVI_USER=${NAVI_USER}
       - NAVI_PASS=${NAVI_PASS}
       - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
+      - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
-      - NAVI_AMAZON_SESSION_FILE=/var/lib/castnavidrome/amazon_session.json
+      - NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}
+      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
+      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
+      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
+    ports:
+      - '127.0.0.1:3456:3456'  # Alexa-Browser-Login-Proxy
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     logging:
       driver: "json-file"
@@ -110,9 +116,19 @@ services:
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
     environment:
+      - NAVI_URL=${NAVI_URL}
+      - NAVI_USER=${NAVI_USER}
+      - NAVI_PASS=${NAVI_PASS}
+      - NAVI_ALEXA_API_KEY=${NAVI_ALEXA_API_KEY}
+      - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME}
+      - NAVI_ALEXA_DOMAIN=${NAVI_ALEXA_DOMAIN:-amazon.com}
       - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
+      - NAVI_AMAZON_USER=${NAVI_AMAZON_USER:-}
+      - NAVI_AMAZON_PASS=${NAVI_AMAZON_PASS:-}
+      - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
+      - NAVI_ALEXA_RENDERER_AUTO_RESTART=true
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -252,12 +268,9 @@ services:
       - NAVI_ALEXA_LOCALE=${NAVI_ALEXA_LOCALE:-en-US}
       - NAVI_ALEXA_SKILL_NAME=${NAVI_ALEXA_SKILL_NAME:-castnavidrome}
       - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
-      - NAVI_AMAZON_CLIENT_ID=${NAVI_AMAZON_CLIENT_ID:-}
-      - NAVI_AMAZON_CLIENT_SECRET=${NAVI_AMAZON_CLIENT_SECRET:-}
-      - NAVI_AMAZON_REDIRECT_URI=${NAVI_AMAZON_REDIRECT_URI:-}
-      - NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
+      - NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:ro
+      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -283,7 +296,7 @@ Der Invocation-Name ist in allen Locales identisch und wird mit `NAVI_ALEXA_SKIL
 docker build -t castnavidrome:local .
 ```
 
-Multi-Architektur-Images lassen sich mit `docker buildx` erstellen (die Dockerfile zielt auf `alpine:3.22.1` ab). Das Image wird nicht automatisch veröffentlicht; bauen und pushen Sie es vor einem Release in Ihre eigene Registry.
+Multi-Architektur-Images lassen sich mit `docker buildx` erstellen (die Dockerfile zielt auf `alpine:3.19` ab). Das Image wird nicht automatisch veröffentlicht; bauen und pushen Sie es vor einem Release in Ihre eigene Registry.
 
 ## Konfiguration
 
@@ -314,8 +327,8 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_ALEXA_LOCALE` | Locale der Skill-Antworten und Sprachbefehle | `en-US` |
 | `NAVI_ALEXA_SKILL_NAME` | Invocation-Name des Skills | `castnavidrome` |
 | `NAVI_ALEXA_COOKIE_FILE` | Gemeinsamer Pfad zur persistenten Alexa-Cookie-Datei | `/var/lib/castnavidrome/alexa.cookies` |
-| `NAVI_AMAZON_CLIENT_ID` / `NAVI_AMAZON_CLIENT_SECRET` / `NAVI_AMAZON_REDIRECT_URI` | Amazon OAuth 2.0 / Login with Amazon | `amzn1.application-oa2-client.xxx` / `Geheimnis` / `https://...` |
-| `NAVI_AMAZON_SESSION_FILE` | Gespeicherte Amazon-Session-Cookies | `/var/lib/castnavidrome/amazon_session.json` |
+| `NAVI_ALEXA_CAPTURE_PASSWORD` | Passwort zum Schutz der Cookie-Capture-UI unter `/api/alexa/cookie/save` | — |
+
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio-Stream-URLs | — |
 | `NAVI_PLAYLIST_NAME_PATTERN` / `_SPOKEN_FORMAT` / `_QUALIFIED_FORMAT` | Playlist-Namen-Gruppierung und gesprochene Formate | — |
 
@@ -347,66 +360,30 @@ castNavidrome behält das Upstream-Verhalten von AskNavidrome bei und fügt hinz
 - UPnP-MediaRenderer pro Alexa-Gerät (neuer Container/Prozess, Host-Netzwerk).
 - Lokalisierung in sechs Sprachen mit sprachspezifischen Sprachbefehlen.
 - Freitextsuche (`castNavidromePlaySearch`), Musik nach Jahrzehnt, Titel nach Name, Playlist-Entdeckung, Radio-Streams, Hilfethemen.
-- Amazon OAuth 2.0 / Login with Amazon (`skill/castnavidrome/amazon_oauth.py`).
+- Amazon-Cookie-Login über Browser-Capture-Proxy (`skill/castnavidrome/cookie_capture_proxy.py`).
 - Geschützte Debug-Endpunkte (`NAVI_DEBUG_TOKEN`) und keine Session-Token/Stream-URIs in Protokollen oder der Debug-Tabelle.
 
 Jedes übernommene Feature und sein Ursprung sind in [CREDITS.md](CREDITS.md) mit den vorgenommenen lokalen Änderungen aufgelistet.
 
-### Amazon OAuth 2.0 / Login with Amazon (empfohlen)
+### Amazon-Cookie-Login (browserbasiert)
 
-Dies ist die stabile, langfristige Anmeldemethode. Amazons reguläre Anmeldeseite (`/ap/signin`) funktioniert nicht mehr zuverlässig, daher verwendet castNavidrome den offiziellen OAuth 2.0 Authorization Code Flow – genauso wie Home Assistant Skills.
+castNavidrome beinhaltet einen browserbasierten Cookie-Capture-Proxy, mit dem du dich über deinen normalen Webbrowser bei Amazon anmelden kannst. Die erfassten Session-Cookies (inklusive des erforderlichen `csrf`-Cookies) werden in `NAVI_ALEXA_COOKIE_FILE` (Standard: `/var/lib/castnavidrome/alexa.cookies`) gespeichert und über das `./state`-Volume zwischen Haupt-Container und Renderer-Container geteilt.
 
-#### A. Login with Amazon Security Profile anlegen
+#### Voraussetzungen
 
-1. Öffne die [Login with Amazon Console](https://developer.amazon.com/loginwithamazon/console/site/lwa/overview.html) und melde dich mit deinem Amazon-Entwicklerkonto an.
-2. Klicke auf **Create a New Security Profile** (oder wähle ein bestehendes Profil aus).
-3. Gib einen Namen ein (z. B. `castNavidrome`) und eine Beschreibung, dann klicke auf **Save**.
-4. Kopiere die angezeigten Werte:
-   - **Client ID** (beginnt mit `amzn1.application-oa2-client.`)
-   - **Client Secret**
-
-#### B. Redirect URI in der Amazon Developer Console registrieren
-
-Damit Amazon den OAuth-Callback akzeptiert, muss die Redirect URI exakt im Security Profile hinterlegt sein:
-
-1. Öffne dein Security Profile in der Login with Amazon Console → Reiter **Web Settings**.
-2. Füge bei **Allowed Return URLs** folgenden Eintrag hinzu:
-
-   ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
-   ```
-
-   Ersetze `deine-castnavidrome-domain.test` durch deine öffentliche castNavidrome-Domain (z. B. `https://castnavidrome.drake-aldebaran.ts.net`).
-3. Klicke auf **Save**.
-
-> **Wichtig:** Die Redirect URI muss exakt mit `NAVI_AMAZON_REDIRECT_URI` in deiner `.env` übereinstimmen – auch ein eventueller Trailing Slash muss identisch sein.
-
-#### C. Umgebungsvariablen in `.env` setzen
+Setze `NAVI_ALEXA_CAPTURE_PASSWORD` in deiner `.env`, um die Cookie-Capture-UI zu schützen:
 
 ```env
-# Amazon OAuth (Login with Amazon)
-NAVI_AMAZON_CLIENT_ID=amzn1.application-oa2-client.deine-client-id
-NAVI_AMAZON_CLIENT_SECRET=dein-client-secret
-NAVI_AMAZON_REDIRECT_URI=https://deine-castnavidrome-domain.test/api/alexa/amazon/callback
-NAVI_AMAZON_TOKEN_FILE=/var/lib/castnavidrome/amazon_oauth_token.json
+NAVI_ALEXA_CAPTURE_PASSWORD=dein-geheimes-passwort
 ```
 
-Zusätzlich benötigst du `NAVI_ALEXA_DOMAIN`:
+Stelle außerdem sicher, dass `NAVI_ALEXA_DOMAIN` deinem Amazon-Marktplatz entspricht (z. B. `amazon.com` für US, `amazon.de` für deutsche Konten):
 
 ```env
-# Amazon-Marktplatz für den Login
-NAVI_ALEXA_DOMAIN=amazon.de
+NAVI_ALEXA_DOMAIN=amazon.com
 ```
 
-| Variable | Bedeutung |
-|----------|-----------|
-| `NAVI_AMAZON_CLIENT_ID` | Client ID aus dem LWA Security Profile |
-| `NAVI_AMAZON_CLIENT_SECRET` | Client Secret aus dem LWA Security Profile |
-| `NAVI_AMAZON_REDIRECT_URI` | Muss exakt unter „Allowed Return URLs“ in der Amazon Developer Console eingetragen sein |
-| `NAVI_AMAZON_TOKEN_FILE` | Pfad, in dem die OAuth-Tokens gespeichert werden |
-| `NAVI_ALEXA_DOMAIN` | Amazon-Marktplatz, z. B. `amazon.de` (DE), `amazon.com` (US) |
-
-#### D. Container starten und OAuth-Token initialisieren
+#### Schritt für Schritt
 
 1. Baue und starte die Container:
 
@@ -414,46 +391,36 @@ NAVI_ALEXA_DOMAIN=amazon.de
    docker compose up -d --build
    ```
 
-   Die OAuth-Variablen werden automatisch an beide Container (`castnavidrome` und `castnavidrome-renderer`) übergeben.
-
-2. Rufe im Browser die Login-URL auf:
+2. Öffne die Cookie-Login-Seite im Browser (Basic Auth mit dem Capture-Passwort):
 
    ```
-   https://deine-castnavidrome-domain.test/api/alexa/amazon/login
+   https://deine-castnavidrome-domain.test/api/alexa/cookie/save
    ```
 
-3. Melde dich mit deinem Amazon-Konto an und erteile castNavidrome die Berechtigung, auf deine Alexa-Geräte zuzugreifen.
-4. Du wirst zurück zu castNavidrome geleitet, und die Zugangstoken werden in `amazon_oauth_token.json` gespeichert.
-5. Ab jetzt funktioniert die Alexa API automatisch; abgelaufene Token werden im Hintergrund neu ausgestellt.
+   Der Benutzername kann beliebig sein; das Passwort ist `NAVI_ALEXA_CAPTURE_PASSWORD`.
 
-#### Startup-Check
+3. Klicke auf der Seite auf die Proxy-URL, um die Amazon-Anmeldung im Capture-Proxy zu öffnen. Melde dich mit deinen Amazon-Anmeldeinformationen an (und TOTP, falls angefordert).
 
-Beim Start des Haupt-Containers wird geprüft, ob gültige OAuth-Token vorliegen. Wenn nicht, erscheint eine Warnung im Log:
+4. Nach erfolgreichem Login erfasst der Proxy automatisch die Session-Cookies und schreibt sie in die Cookie-Datei. Der Status-Endpunkt zeigt an, ob die Session gültig ist:
 
-```
-No valid Amazon OAuth tokens found. Open /api/alexa/amazon/login to authenticate before using the Alexa API.
-```
+   ```bash
+   curl -u :dein-capture-passwort https://deine-castnavidrome-domain.test/api/alexa/cookie/proxy/status
+   ```
 
-Das ist nach dem ersten Start normal – erst die Token durch den Aufruf von `/api/alexa/amazon/login` erstellen.
+   Achte auf `"login_success": true` und `"has_csrf": true`.
 
-#### Cookie-Datei als Fallback
+5. Der Renderer-Container (`castnavidrome-renderer`) teilt sich dasselbe `./state`-Volume und übernimmt automatisch die Cookies aus `/var/lib/castnavidrome/alexa.cookies`.
 
-Wenn der OAuth-Login nicht funktioniert (z. B. wegen CAPTCHA oder zusätzlicher Verifizierungsschritte), kann weiterhin eine statische Alexa-Cookie-Datei als Fallback verwendet werden.
+#### Hinweise
 
-### Alexa-Cookie-Datei (manueller Fallback)
+- Cookies werden in `alexa.cookies` geschrieben (SimpleCookie-Format, `name=value` pro Zeile), nicht in `amazon_session.json`.
+- Fehlt das `csrf`-Cookie nach dem Login, aktualisiere die Status-Seite – Amazon setzt `csrf` bei einer anschließenden Anfrage an die Alexa-Domain, was der Proxy jetzt automatisch auslöst.
+- Der Renderer-Container kann beim Start „Could not ensure Amazon session, falling back to cached cookies“ protokollieren. Das ist erwartetes Verhalten – er greift auf die gemeinsame Cookie-Datei zurück und benötigt keinen eigenen Amazon-Login.
 
-Wenn du den automatischen Amazon-Login nicht nutzen möchtest (oder er scheitert, etwa wegen CAPTCHA oder einem zusätzlichen Verifizierungsschritt), kannst du stattdessen eine bestehende Alexa-Session-Cookie-Datei verwenden.
 
-1. Öffne deine Amazon-Domain (z. B. https://www.amazon.de) im Browser und melde dich an.
-2. Öffne die Entwicklertools (F12), gehe zu **Anwendung → Cookies** und wähle deine Amazon-Domain aus.
-3. Kopiere die Cookies als `name=value`-Paare, eine pro Zeile. Stelle sicher, dass der `csrf`-Cookie enthalten ist.
-4. Speichere die Datei als `.secrets/alexa.cookies` (oder einen anderen Pfad deiner Wahl) und setze `NAVI_ALEXA_COOKIE_FILE` auf diesen Pfad.
-5. Binde die Datei schreibgeschützt in den Container ein (siehe `docker-compose.yml`-Beispiel).
-
-![Alexa-Cookie-Export](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 
 ## Sicherheit
-- Die Alexa-Cookie-Datei sowie `NAVI_AMAZON_CLIENT_SECRET` sind sensibel. Halten Sie `.secrets/` und `.env` aus der Versionskontrolle heraus (stehen in `.gitignore`) und binden Sie `.secrets/` schreibgeschützt ein.
+- Die Alexa-Cookie-Datei (`.secrets/alexa.cookies` bzw. `state/alexa.cookies`) und `NAVI_ALEXA_CAPTURE_PASSWORD` sind sensibel. Halten Sie `.secrets/` und `.env` aus der Versionskontrolle heraus (stehen in `.gitignore`).
 - Stellen Sie die Endpunkte `/api/alexa/*` und `/debug/*` nicht ohne `NAVI_ALEXA_API_KEY` und HTTPS ins öffentliche Internet.
 
 ## Lizenz
