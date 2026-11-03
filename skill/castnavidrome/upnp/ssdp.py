@@ -392,7 +392,7 @@ class SsdpServer:
         with self._search_logged_lock:
             if log_key not in self._search_logged:
                 self._search_logged.add(log_key)
-                logger.info('SSDP search for %s from %s:%s', search_target, address[0], address[1])
+                logger.debug('SSDP search for %s from %s:%s', search_target, address[0], address[1])
 
         try:
             mx = float(headers.get('mx', '0') or '0')
@@ -455,7 +455,7 @@ class SsdpServer:
                 time.sleep(delay - last)
             last = delay
             response = self._build_search_response(target, renderer)
-            logger.info('SSDP response to %s:%s: %s', address[0], address[1], response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
+            logger.debug('SSDP response to %s:%s: %s', address[0], address[1], response.decode('utf-8', 'replace').replace('\\r\\n', ' | '))
             # Sende jede Antwort mehrfach, damit ein verlorenes UDP-Paket
             # den Renderer nicht vor Clients wie Jellybox oder Feishin verbirgt.
             for copy in range(self.search_response_count):
