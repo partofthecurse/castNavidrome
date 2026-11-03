@@ -42,6 +42,12 @@ SSDP_NOTIFY_DELAY = 0.4
 SSDP_SEARCH_RESPONSE_COUNT = 2
 SSDP_SEARCH_RESPONSE_DELAY = 0.15
 
+# Global deduplication of outgoing SSDP answers by (ST, USN).  A client that
+# searches repeatedly gets the same answer over and over, which floods the
+# WLAN.  The short window keeps duplicate answers from the same search
+# request from being sent twice in a row.
+SSDP_RESPONSE_DEDUP_SECONDS = 0.15
+
 # The SSDP responder sends its answers and announcements over unreliable
 # UDP multicast.  A rate limit keeps the bursts small, so that clients that
 # discard packets when they arrive too quickly still receive the answers.
@@ -108,6 +114,13 @@ class SsdpServer:
         self._renderers = []
         self._lock = threading.Lock()
         self.on_search = None
+
+        # Global deduplication of outgoing SSDP answers by (ST, USN).  A client
+        # that searches repeatedly gets the same answer over and over, which
+        # floods the WLAN.  The short window keeps duplicate answers from the
+        # same search request from being sent twice in a row.
+        self._response_seen = {}
+        self._response_seen_lock = threading.Lock()
 
         # Rate limit of the outgoing SSDP packets.  UDP multicast is
         # unreliable and bursts of answers are dropped by clients that
@@ -549,16 +562,23 @@ class SsdpServer:
         return '\r\n'.join(lines).encode('utf-8')
 
     def _sendto(self, payload: bytes, address) -> None:
-        """Send a packet, applying the rate limit.
+        """Send a packet, applying the dedup and rate limits.
 
-        The rate limit spreads the outgoing packets out, so that clients that
-        discard packets when they arrive too quickly still receive the answers.
-        Duplicate searches are suppressed by the per-source dedup in the
-        message handler, so every answer that reaches this method is sent.
+        The dedup window suppresses the same (ST, USN) answer that a client
+        sends repeatedly, so that the WLAN is not flooded.  The rate limit
+        spreads the outgoing packets out, so that clients that discard
+        packets when they arrive too quickly still receive the answers.
         """
 
         if not self._sockets:
             return
+
+        # Search responses carry an ST header, so they can be deduplicated
+        # by (ST, USN).  Announcements (NOTIFY) have no ST header and are
+        # not deduplicated, because repeating them is intentional.
+        if self._has_st_header(payload):
+            if not self._should_send(payload):
+                return
 
         self._wait_for_rate_limit()
 
@@ -575,6 +595,52 @@ class SsdpServer:
             candidates[0].sendto(payload, address)
         except OSError as error:
             logger.debug('Could not send the SSDP response to %s: %s', address, error)
+
+    @staticmethod
+    def _has_st_header(payload: bytes) -> bool:
+        text = payload.decode('utf-8', 'replace')
+        return any(line.upper().startswith('ST:') for line in text.split('\r\n'))
+
+    def _response_key(self, payload: bytes) -> str:
+        """Return a stable key for a response so that duplicates are suppressed.
+
+        The key is built from the ST and USN headers, so that the same
+        renderer answering the same search target is only sent once per
+        deduplication window, even when the client searches repeatedly.
+        """
+
+        text = payload.decode('utf-8', 'replace')
+        st = ''
+        usn = ''
+
+        for line in text.split('\r\n'):
+            if line.upper().startswith('ST:'):
+                st = line.split(':', 1)[1].strip().lower()
+            elif line.upper().startswith('USN:'):
+                usn = line.split(':', 1)[1].strip().lower()
+
+        return f'{st}|{usn}'
+
+    def _should_send(self, payload: bytes) -> bool:
+        """Return True when the response has not been sent in the dedup window."""
+
+        key = self._response_key(payload)
+        now = time.monotonic()
+
+        with self._response_seen_lock:
+            self._purge_response_seen(now)
+            last = self._response_seen.get(key)
+            if last is not None and now - last < SSDP_RESPONSE_DEDUP_SECONDS:
+                return False
+            self._response_seen[key] = now
+            return True
+
+    def _purge_response_seen(self, now: float) -> None:
+        """Drop dedup entries that are older than the dedup window."""
+
+        cutoff = now - SSDP_RESPONSE_DEDUP_SECONDS
+        for key in [key for key, last in self._response_seen.items() if last < cutoff]:
+            del self._response_seen[key]
 
     def _wait_for_rate_limit(self) -> None:
         """Sleep until the rate limit allows another outgoing packet.
