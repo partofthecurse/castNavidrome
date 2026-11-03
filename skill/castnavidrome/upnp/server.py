@@ -271,7 +271,11 @@ class RendererRequestHandler(BaseHTTPRequestHandler):
             self._send(500, build_soap_fault(501, str(error)))
             return
 
-        self._send(200, build_soap_response(SERVICE_TYPES[service_key], request.action, result))
+        # The response namespace matches the request namespace so that
+        # clients searching for higher service versions (AVTransport:2/:3)
+        # get a matching answer back.
+        response_service_type = request.service_type or SERVICE_TYPES[service_key]
+        self._send(200, build_soap_response(response_service_type, request.action, result))
 
     def do_SUBSCRIBE(self) -> None:
         parts = self._path_parts()
