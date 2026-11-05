@@ -328,7 +328,8 @@ El servicio lee su configuración de variables de entorno.
 | `NAVI_ALEXA_SKILL_NAME` | Nombre de invocación del skill | `castnavidrome` |
 | `NAVI_ALEXA_COOKIE_FILE` | Ruta compartida al archivo persistente de cookies Alexa | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_ALEXA_CAPTURE_PASSWORD` | Contraseña que protege la UI de captura de cookies en `/api/alexa/cookie/save` | — |
-| `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` | Credenciales de Amazon para el proxy de captura (auto-relleno del formulario de login) | — |
+| `NAVI_ALEXA_AIODATA_FILE` | Datos privados y persistentes de inicio de sesión aioamazondevices en el volumen compartido | `/var/lib/castnavidrome/aioamazondevices/login.json` |
+| `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` | Credenciales de Amazon y secreto TOTP Base32 para el inicio de sesión automático del renderer | — |
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | URL de emisiones de radio | — |
 | `NAVI_PLAYLIST_NAME_PATTERN` / `_SPOKEN_FORMAT` / `_QUALIFIED_FORMAT` | Agrupación y formato hablado de nombres de listas de reproducción | — |
 
@@ -360,16 +361,18 @@ castNavidrome conserva el comportamiento upstream de AskNavidrome y agrega:
 - MediaRenderer UPnP por dispositivo Alexa (nuevo contenedor/proceso, red de host).
 - Localización en seis idiomas con comandos de voz específicos del idioma.
 - Búsqueda de texto libre (`castNavidromePlaySearch`), música por década, canción por título, descubrimiento de listas, emisiones de radio, temas de ayuda.
-- Inicio de sesión de Amazon mediante proxy de captura de cookies por navegador (`skill/castnavidrome/cookie_capture_proxy.py`).
+- Inicio de sesión automático de Amazon mediante `aioamazondevices` y TOTP, con el proxy de captura de cookies como alternativa.
 - Puntos finales de depuración protegidos (`NAVI_DEBUG_TOKEN`) y ningún token de sesión / URI de transmisión en los registros ni en la tabla de depuración.
 
 Cada característica adoptada y su origen están listados en [CREDITS.md](CREDITS.md) con los cambios locales aplicados.
 
-### Amazon cookie capture (browser login, recomendado)
+### Inicio de sesión de Amazon (automático, alternativa con navegador)
 
-castNavidrome incluye un proxy de captura de cookies por navegador (construido sobre `alexapy`, la misma biblioteca que `alexa_media_player`) que permite inicia sesión en Amazon a través de tu navegador habitual. Las cookies de sesión capturadas (incluida la cookie `csrf` requerida) se persisten en `NAVI_ALEXA_COOKIE_FILE` (por defecto: `/var/lib/castnavidrome/alexa.cookies`) y se comparten entre el contenedor principal y el contenedor renderer mediante el volumen `./state`.
+Si configuras `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS` y `NAVI_AMAZON_TOTP_SECRET`, el renderer inicia sesión automáticamente mediante `aioamazondevices`, sin tener que pulsar en un flujo de login del navegador. El estado reutilizable se guarda en `/var/lib/castnavidrome/aioamazondevices/login.json`, dentro del volumen `./state`, con permisos `0600`. `NAVI_ALEXA_LOCALE` controla el idioma de los comandos de voz independientemente del dominio de Amazon.
 
-#### Requisitos
+El proxy actual de captura de cookies del navegador se conserva como alternativa si Amazon solicita una verificación adicional o el inicio de sesión automático no está disponible.
+
+#### Configurar la alternativa del navegador
 
 Configura `NAVI_ALEXA_CAPTURE_PASSWORD` en tu `.env` para proteger la interfaz de captura de cookies:
 

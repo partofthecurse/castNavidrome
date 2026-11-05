@@ -3,9 +3,11 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from castnavidrome.amazon_login import (
+    AioAmazonSession,
     AmazonSession,
     AmazonLoginError,
     AmazonCredentialsMissing,
@@ -248,6 +250,65 @@ class EnsureSessionTests(unittest.TestCase):
             self.session.request('https://example.com')
             mock_alexa.assert_not_called()
         self.assertEqual(self.session.cookies['csrf'], 'x')
+
+
+class AioAmazonSessionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.cookie_file = Path(self.temp_dir.name) / 'alexa.cookies'
+        self.session = AioAmazonSession(cookie_file=self.cookie_file)
+
+    def test_totp_matches_the_rfc_6238_sha1_example(self):
+        self.assertEqual(
+            self.session._totp_code('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', timestamp=59),
+            '287082',
+        )
+
+    def test_login_data_is_persisted_with_private_permissions(self):
+        login_data = {
+            'refresh_token': 'refresh-token',
+            'device_info': {'device_serial_number': 'device-serial'},
+        }
+
+        self.session._save_login_data(login_data)
+
+        self.assertEqual(self.session._load_login_data(), login_data)
+        self.assertEqual(self.session.login_data_file.stat().st_mode & 0o777, 0o600)
+
+    def test_device_record_maps_aio_fields_for_the_renderer_registry(self):
+        device = SimpleNamespace(
+            account_name='Wohnzimmer',
+            device_owner_customer_id='owner-1',
+            device_type='device-type-1',
+            device_family='ECHO',
+            serial_number='serial-1',
+            online=True,
+        )
+
+        self.assertEqual(AioAmazonSession._device_record(device, 'customer-1'), {
+            'name': 'Wohnzimmer',
+            'deviceOwnerCustomerId': 'owner-1',
+            'deviceType': 'device-type-1',
+            'deviceFamily': 'ECHO',
+            'serialNumber': 'serial-1',
+            'online': True,
+        })
+
+    def test_device_record_uses_account_customer_id_when_device_owner_is_missing(self):
+        device = SimpleNamespace(
+            account_name='Wohnzimmer',
+            device_owner_customer_id='',
+            device_type='device-type-1',
+            device_family='ECHO',
+            serial_number='serial-1',
+            online=True,
+        )
+
+        self.assertEqual(
+            AioAmazonSession._device_record(device, 'customer-1')['deviceOwnerCustomerId'],
+            'customer-1',
+        )
 
 
 if __name__ == '__main__':

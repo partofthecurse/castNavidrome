@@ -6,7 +6,7 @@ import time
 import unittest
 import urllib.request
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from castnavidrome.alexa_remote import AlexaRemoteError
 from castnavidrome.renderer_host import AlexaRendererController, RendererHost
@@ -268,6 +268,21 @@ class ControllerAnnounceTests(unittest.TestCase):
         controller.pause(renderer)
 
         self.assertEqual(client.sent, ['frage zero mukke, pausiere'])
+
+    def test_aioamazondevices_handles_text_commands_when_configured(self):
+        controller, legacy_client, renderer = make_controller()
+        aio_client = MagicMock()
+        aio_client.is_configured = True
+        controller.aioamazon_session = aio_client
+
+        controller.volume_up(renderer)
+
+        aio_client.send_text_command.assert_called_once_with(
+            renderer.device,
+            'lauter',
+            locale='de-DE',
+        )
+        self.assertEqual(legacy_client.sent, [])
 
     def test_a_track_that_a_user_starts_is_announced(self):
         controller, client, renderer = make_controller()

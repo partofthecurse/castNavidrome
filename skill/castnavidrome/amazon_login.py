@@ -8,9 +8,15 @@ cookies are no longer accepted.  Cookies are written to
 """
 
 import asyncio
+import base64
+from contextlib import asynccontextmanager
+import hashlib
+import hmac
+import json
 import logging
 import os
 import shutil
+import struct
 import tempfile
 import time
 from http.cookies import SimpleCookie
@@ -34,6 +40,7 @@ SECRETS_DIR = Path('/run/secrets')
 
 SESSION_TTL_SECONDS = 12 * 60 * 60
 RENEWAL_WINDOW_SECONDS = 300
+DEFAULT_AIO_LOGIN_SUBPATH = 'aioamazondevices/login.json'
 
 REQUIRED_COOKIES = ('csrf', 'at-acbde', 'session-id', 'session-token')
 
@@ -343,3 +350,162 @@ class AmazonSession:
             raise AmazonLoginError(f'Amazon returned HTTP {error.code}.') from None
         except urllib.error.URLError as error:
             raise AmazonLoginError(f'Could not reach Amazon: {error}') from None
+
+
+class AioAmazonSession:
+    """Authenticate with aioamazondevices and persist reusable login state."""
+
+    def __init__(self, domain=None, cookie_file=None, login_data_file=None) -> None:
+        self.credentials = AmazonSession(domain=domain, session_file=cookie_file)
+        self.cookie_file = self.credentials.session_file
+        self.login_data_file = Path(
+            login_data_file or self.cookie_file.parent / DEFAULT_AIO_LOGIN_SUBPATH
+        )
+
+    @staticmethod
+    def _totp_code(secret: str, timestamp: float = None) -> str:
+        value = ''.join((secret or '').split())
+        key = base64.b32decode(value + '=' * (-len(value) % 8), casefold=True)
+        counter = int((time.time() if timestamp is None else timestamp) // 30)
+        digest = hmac.new(key, struct.pack('>Q', counter), hashlib.sha1).digest()
+        offset = digest[-1] & 15
+        code = (int.from_bytes(digest[offset:offset + 4], 'big') & 0x7fffffff) % 1000000
+        return f'{code:06d}'
+
+    def _load_login_data(self) -> dict:
+        try:
+            data = json.loads(self.login_data_file.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        if not isinstance(data, dict) or not data.get('refresh_token'):
+            return {}
+
+        return data
+
+    def _save_login_data(self, data: dict) -> None:
+        destination = self.login_data_file
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        contents = json.dumps(data, separators=(',', ':'), ensure_ascii=False)
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=f'.{destination.name}.', dir=destination.parent, text=True,
+        )
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+                output.write(contents)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, destination)
+            os.chmod(destination, 0o600)
+        except Exception:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+            raise
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.credentials.user() and self.credentials.password() and self.credentials.totp_secret())
+
+    @staticmethod
+    def _device_record(device, customer_id: str) -> dict:
+        return {
+            'name': device.account_name,
+            'deviceOwnerCustomerId': device.device_owner_customer_id or customer_id or '',
+            'deviceType': device.device_type,
+            'deviceFamily': device.device_family,
+            'serialNumber': device.serial_number,
+            'online': device.online,
+        }
+
+    def _run(self, coroutine):
+        try:
+            return asyncio.run(coroutine)
+        except RuntimeError as error:
+            if 'event loop' in str(error).lower():
+                raise AmazonLoginError('aioamazondevices calls must run outside an active event loop.') from None
+            raise
+
+    @asynccontextmanager
+    async def _connected_api(self):
+        try:
+            import aiohttp
+            from aioamazondevices.api import AmazonEchoApi
+            from aioamazondevices.exceptions import CannotAuthenticate
+            from aioamazondevices.structures import AmazonSaveDataConfig
+        except ImportError as error:
+            raise AmazonLoginError('aioamazondevices is not installed.') from error
+
+        logging.getLogger('aioamazondevices').setLevel(logging.WARNING)
+        login_data = self._load_login_data()
+        self.login_data_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        async with aiohttp.ClientSession() as client_session:
+            api = AmazonEchoApi(
+                client_session,
+                self.credentials.user(),
+                self.credentials.password(),
+                save_data=AmazonSaveDataConfig(self.login_data_file.parent),
+                login_data=login_data or None,
+            )
+
+            try:
+                if not login_data:
+                    await api.login.login_mode_interactive(
+                        self._totp_code(self.credentials.totp_secret())
+                    )
+                try:
+                    devices = await api.get_devices_data()
+                except CannotAuthenticate:
+                    await api.login.login_mode_interactive(
+                        self._totp_code(self.credentials.totp_secret())
+                    )
+                    devices = await api.get_devices_data()
+
+                yield api, devices
+            finally:
+                stored_data = api._session_state_data.login_stored_data
+                if stored_data:
+                    self._save_login_data(stored_data)
+
+    def ensure_session(self) -> bool:
+        """Refresh or establish the Aio session; return False if not configured."""
+        if not self.is_configured:
+            return False
+
+        self._run(self._async_ensure_session())
+        return True
+
+    async def _async_ensure_session(self) -> None:
+        async with self._connected_api() as (_, devices):
+            logger.info('AioAmazon login available for %s Alexa device(s).', len(devices))
+
+    def list_devices(self) -> list:
+        if not self.is_configured:
+            raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
+        return self._run(self._async_list_devices())
+
+    async def _async_list_devices(self) -> list:
+        async with self._connected_api() as (api, devices):
+            customer_id = api._session_state_data.account_customer_id
+            return [self._device_record(device, customer_id) for device in devices.values()]
+
+    def send_text_command(self, device: dict, text: str, locale: str = 'en-US') -> None:
+        if not self.is_configured:
+            raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
+        self._run(self._async_send_text_command(device, text, locale))
+
+    async def _async_send_text_command(self, device: dict, text: str, locale: str) -> None:
+        async with self._connected_api() as (api, devices):
+            serial = device.get('serialNumber') or ''
+            target = devices.get(serial)
+            if target is None:
+                raise AmazonLoginError('The Alexa device of this renderer is unknown.')
+
+            api._session_state_data._language = locale
+            await api.call_alexa_text_command(target, text)
+            pending = list(api._sequence_handler._tasks)
+            if pending:
+                await asyncio.gather(*pending)

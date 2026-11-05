@@ -15,7 +15,7 @@ castNavidrome macht aus jedem Alexa-Gerät einen eigenen UPnP/DLNA-MediaRenderer
 - Wiedergabewarteschlange mischen, Lieder markieren/entmarkieren, Details des aktuellen Titels anzeigen.
 - Radio-Streams und Playlist-Entdeckung ("spiele mehr Playlists wie diese", "finde eine Playlist").
 - Hilfethemen und gesprochene Antworten in der Sprache des Echo-Geräts.
-- Amazon-Cookie-Login über Browser-Capture-Proxy (ersetzt das manuelle Kopieren der Cookie-Datei und den TOTP-Login).
+- Automatischer Amazon-Login über `aioamazondevices` mit TOTP; der Browser-Capture-Proxy bleibt als Fallback verfügbar.
 - Läuft direkt mit Python oder in einem Docker-Container (empfohlen).
 
 ## Sprachen
@@ -328,6 +328,8 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_ALEXA_SKILL_NAME` | Invocation-Name des Skills | `castnavidrome` |
 | `NAVI_ALEXA_COOKIE_FILE` | Gemeinsamer Pfad zur persistenten Alexa-Cookie-Datei | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_ALEXA_CAPTURE_PASSWORD` | Passwort zum Schutz der Cookie-Capture-UI unter `/api/alexa/cookie/save` | — |
+| `NAVI_ALEXA_AIODATA_FILE` | Geschützte persistente aioamazondevices-Login-Daten im gemeinsamen State-Volume | `/var/lib/castnavidrome/aioamazondevices/login.json` |
+| `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` | Amazon-Zugangsdaten und Base32-TOTP-Secret für den automatischen Renderer-Login | — |
 
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio-Stream-URLs | — |
 | `NAVI_PLAYLIST_NAME_PATTERN` / `_SPOKEN_FORMAT` / `_QUALIFIED_FORMAT` | Playlist-Namen-Gruppierung und gesprochene Formate | — |
@@ -365,11 +367,13 @@ castNavidrome behält das Upstream-Verhalten von AskNavidrome bei und fügt hinz
 
 Jedes übernommene Feature und sein Ursprung sind in [CREDITS.md](CREDITS.md) mit den vorgenommenen lokalen Änderungen aufgelistet.
 
-### Amazon-Cookie-Login (browserbasiert)
+### Amazon-Login (automatisch, Browser-Fallback)
 
-castNavidrome beinhaltet einen browserbasierten Cookie-Capture-Proxy, mit dem du dich über deinen normalen Webbrowser bei Amazon anmelden kannst. Die erfassten Session-Cookies (inklusive des erforderlichen `csrf`-Cookies) werden in `NAVI_ALEXA_COOKIE_FILE` (Standard: `/var/lib/castnavidrome/alexa.cookies`) gespeichert und über das `./state`-Volume zwischen Haupt-Container und Renderer-Container geteilt.
+Wenn `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS` und `NAVI_AMAZON_TOTP_SECRET` gesetzt sind, meldet sich der Renderer beim Start automatisch mit `aioamazondevices` an; ein Browser-Login-Klick ist nicht nötig. Der wiederverwendbare Login-Zustand wird unter `/var/lib/castnavidrome/aioamazondevices/login.json` im `./state`-Volume mit Dateirechten `0600` gespeichert. `NAVI_ALEXA_LOCALE` steuert die Sprache der Textbefehle unabhängig von der Amazon-Domain.
 
-#### Voraussetzungen
+Der bisherige Browser-Capture-Proxy bleibt als Fallback verfügbar, falls Amazon einen zusätzlichen Challenge-Schritt verlangt oder die automatische Anmeldung nicht möglich ist.
+
+#### Browser-Fallback konfigurieren
 
 Setze `NAVI_ALEXA_CAPTURE_PASSWORD` in deiner `.env`, um die Cookie-Capture-UI zu schützen:
 

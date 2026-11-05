@@ -339,6 +339,8 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_SKILL_NAME` | Invocation name of the skill | `castnavidrome` |
 | `NAVI_ALEXA_COOKIE_FILE` | Shared path to the persistent Alexa cookie file | `/var/lib/castnavidrome/alexa.cookies` |
 | `NAVI_ALEXA_CAPTURE_PASSWORD` | Password protecting the cookie capture UI at `/api/alexa/cookie/save` | — |
+| `NAVI_ALEXA_AIODATA_FILE` | Private persistent aioamazondevices login data (shared state volume) | `/var/lib/castnavidrome/aioamazondevices/login.json` |
+| `NAVI_AMAZON_USER` / `NAVI_AMAZON_PASS` / `NAVI_AMAZON_TOTP_SECRET` | Amazon credentials and Base32 TOTP secret for automatic renderer login | — |
 
 | `NAVI_RADIO_URL` / `NAVI_RADIO_STATIONS_URL` | Radio stream URLs | — |
 | `NAVI_PLAYLIST_NAME_PATTERN` / `_SPOKEN_FORMAT` / `_QUALIFIED_FORMAT` | Playlist name grouping and spoken format | — |
@@ -376,16 +378,18 @@ castNavidrome keeps the upstream AskNavidrome behaviour intact and adds:
 - UPnP MediaRenderer per Alexa device (new containers/process, host networking).
 - Localization into six languages with language-specific voice commands.
 - Free-text search (`castNavidromePlaySearch`), music by decade, song by title, playlist discovery, radio streams, help topics.
-- Amazon cookie login via browser capture proxy (`skill/castnavidrome/cookie_capture_proxy.py`).
+- Automatic Amazon login via `aioamazondevices` and TOTP, with the browser cookie-capture proxy retained as a fallback.
 - Protected debug endpoints (`NAVI_DEBUG_TOKEN`) and no session tokens / stream URIs in logs or the debug table.
 
 Every adopted feature and its origin is listed in [CREDITS.md](CREDITS.md) with the local changes applied.
 
-### Amazon cookie login (browser-based)
+### Amazon login (automatic, browser fallback)
 
-castNavidrome includes a browser-based cookie capture proxy that lets you log in to Amazon through your normal web browser. The captured session cookies (including the required `csrf` cookie) are persisted to `NAVI_ALEXA_COOKIE_FILE` (default: `/var/lib/castnavidrome/alexa.cookies`) and shared between the main container and the renderer container via the `./state` volume.
+When `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS`, and `NAVI_AMAZON_TOTP_SECRET` are set, the renderer signs in automatically through `aioamazondevices`; no browser-login click is required. Reusable login state is stored at `/var/lib/castnavidrome/aioamazondevices/login.json` on the `./state` volume with file permissions `0600`. `NAVI_ALEXA_LOCALE` controls voice-command language independently of the Amazon domain.
 
-#### Prerequisites
+The existing browser cookie-capture proxy remains available as a fallback if Amazon requires an additional challenge or automatic sign-in is unavailable.
+
+#### Configure the browser fallback
 
 Set `NAVI_ALEXA_CAPTURE_PASSWORD` in your `.env` to protect the cookie capture UI:
 

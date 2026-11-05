@@ -14,7 +14,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from castnavidrome.alexa_device_filter import DeviceFilter
-from castnavidrome.amazon_login import AmazonSession
+from castnavidrome.amazon_login import AioAmazonSession, AmazonSession
 from castnavidrome.amazon_login import resolve_cookie_file
 from castnavidrome.alexa_remote import (
     AlexaRemoteError,
@@ -88,13 +88,14 @@ class AlexaRendererController:
 
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', skill_name: str = 'castnavidrome',
                  locale: str = DEFAULT_ALEXA_LOCALE, subsonic_connection=None,
-                 announce: str = DEFAULT_ANNOUNCE) -> None:
+                 announce: str = DEFAULT_ANNOUNCE, aioamazon_session=None) -> None:
         self.cookie_file = cookie_file
         self.domain = domain
         self.skill_name = skill_name
         self.locale = normalize_locale(locale)
         self.subsonic_connection = subsonic_connection
         self.announce = announce if announce in ANNOUNCE_MODES else DEFAULT_ANNOUNCE
+        self.aioamazon_session = aioamazon_session
 
     def _client(self) -> AlexaTextCommandClient:
         return AlexaTextCommandClient(
@@ -111,8 +112,11 @@ class AlexaRendererController:
         device = self._device(renderer)
 
         try:
-            self._client().send_text_command(device, text, locale=self.locale)
-        except AlexaRemoteError as error:
+            if self.aioamazon_session and self.aioamazon_session.is_configured:
+                self.aioamazon_session.send_text_command(device, text, locale=self.locale)
+            else:
+                self._client().send_text_command(device, text, locale=self.locale)
+        except Exception as error:
             raise RendererCommandError(str(error)) from error
 
         logger.info('Sent the Alexa command "%s" to %s.', text, device.get('name'))
@@ -426,6 +430,14 @@ class RendererHost:
 
         configured_cookie_file = self.env.get('NAVI_ALEXA_COOKIE_FILE', '/run/secrets/alexa.cookies')
         self.cookie_file = str(resolve_cookie_file(configured_cookie_file))
+        self.aioamazon_session = AioAmazonSession(
+            domain=self.domain,
+            cookie_file=self.cookie_file,
+            login_data_file=self.env.get(
+                'NAVI_ALEXA_AIODATA_FILE',
+                '/var/lib/castnavidrome/aioamazondevices/login.json',
+            ),
+        )
         self.amazon_session = AmazonSession(domain=self.domain, session_file=self.cookie_file)
         self.auto_restart = self.env.get('NAVI_ALEXA_RENDERER_AUTO_RESTART', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
         self._cookie_file_mtime = self._cookie_file_mtime()
@@ -444,6 +456,7 @@ class RendererHost:
             locale=self.locale,
             subsonic_connection=self._build_subsonic_connection(),
             announce=self.announce,
+            aioamazon_session=self.aioamazon_session,
         )
 
         self._last_refresh = 0.0
@@ -642,6 +655,18 @@ class RendererHost:
         os.kill(os.getpid(), signal.SIGTERM)
 
     def list_devices(self) -> list:
+        if self.aioamazon_session.is_configured:
+            try:
+                return self.aioamazon_session.list_devices()
+            except Exception as error:
+                logger.warning('Could not fetch Alexa devices via aioamazondevices, falling back to cookies: %s',
+                               error)
+
+        try:
+            self.amazon_session.ensure_session()
+        except Exception as error:
+            logger.warning('Could not ensure Amazon session, falling back to cached cookies: %s', error)
+
         client = AlexaTextCommandClient(self.cookie_file, domain=self.domain)
         return client.list_devices()
 
@@ -649,15 +674,6 @@ class RendererHost:
         """Fetch the Alexa devices and update the list of media renderers."""
 
         self._maybe_restart_on_cookie_change()
-
-        # Stellen Sie sicher, dass gültige Cookies vorliegen, damit
-        # die Alexa Remote API erreichbar ist.  Erneuert automatisch
-        # vor Ablauf; bei fehlgeschlagenem Login greift der Fallback
-        # auf die zuletzt bekannte Renderer-Liste.
-        try:
-            self.amazon_session.ensure_session()
-        except Exception as error:
-            logger.warning('Could not ensure Amazon session, falling back to cached cookies: %s', error)
 
         with self._refresh_lock:
             try:
