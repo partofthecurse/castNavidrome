@@ -4,3 +4,4 @@ flask-ask-sdk
 py-sonic
 rapidfuzz
 alexapy
+aioamazondevices==17.2.7

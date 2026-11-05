@@ -27,6 +27,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from http.cookies import SimpleCookie
 
+from castnavidrome.ask_sdk_compat import install_certificate_chain_workaround
+
 from ask_sdk_core.skill_builder import SkillBuilder  # builds the Alexa skill
 from ask_sdk_core.dispatch_components import AbstractRequestHandler, AbstractRequestInterceptor, AbstractResponseInterceptor
 from ask_sdk_core.utils import is_request_type, is_intent_name, get_intent_name, get_request_type
@@ -57,7 +59,6 @@ from castnavidrome.localization import (
 )
 from castnavidrome.exception_handlers import GeneralExceptionHandler, SystemExceptionHandler
 from castnavidrome.cover_art import fetch_cover_art
-from castnavidrome.ask_sdk_compat import install_certificate_chain_workaround
 from castnavidrome.handlers import register_handlers
 
 # Create the Flask web service

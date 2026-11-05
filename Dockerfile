@@ -1,8 +1,8 @@
-FROM alpine:3.19 AS build
+FROM python:3.14-alpine AS build
 LABEL maintainer="part0"
 LABEL org.opencontainers.image.source=https://github.com/partofthecurse/castnavidrome
 
-RUN apk add --no-cache python3 py3-pip build-base python3-dev libffi-dev openssl-dev
+RUN apk add --no-cache build-base libffi-dev openssl-dev
 
 WORKDIR /opt
 
@@ -18,11 +18,11 @@ COPY skill/ .
 COPY docs/images/cast_navidrome_logo.jpg ./docs/images/cast_navidrome_logo.jpg
 
 
-FROM alpine:3.19
+FROM python:3.14-alpine
 LABEL maintainer="part0"
 LABEL org.opencontainers.image.source=https://github.com/partofthecurse/castnavidrome
 
-RUN apk add --no-cache python3
+RUN apk add --no-cache libcrypto3
 
 COPY --from=build /opt/env /opt/env
 COPY --from=build /opt/castnavidrome/ /opt/castnavidrome/

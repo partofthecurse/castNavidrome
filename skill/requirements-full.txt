@@ -3,6 +3,7 @@ ask-sdk
 flask-ask-sdk
 py-sonic
 alexapy
+aioamazondevices==17.2.7
 
 # Dev
 sphinx

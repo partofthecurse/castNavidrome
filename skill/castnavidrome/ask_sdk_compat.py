@@ -12,9 +12,27 @@ the validation fails.
 """
 
 import logging
+import os
 import time
 
 logger = logging.getLogger(__name__)
+
+def _configure_openssl_paths() -> None:
+    libcrypto_path = '/usr/lib/libcrypto.so.3'
+    libssl_path = '/usr/lib/libssl.so.3'
+    if not (os.path.isfile(libcrypto_path) and os.path.isfile(libssl_path)):
+        return
+
+    try:
+        from oscrypto import use_openssl
+        use_openssl(libcrypto_path, libssl_path)
+    except ImportError:  # pragma: no cover - oscrypto is an SDK dependency
+        return
+    except RuntimeError as error:
+        logger.debug('OpenSSL paths were already configured: %s', error)
+
+
+_configure_openssl_paths()
 
 CHAIN_VALIDATION_ATTEMPTS = 3
 CHAIN_VALIDATION_DELAY = 1.0
