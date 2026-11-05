@@ -219,6 +219,20 @@ class AlexaTextCommandClientTests(unittest.TestCase):
         self.assertEqual(operation['text'], 'ask zero mukke to pause')
         self.assertEqual(operation['deviceSerialNumber'], 'serial-1')
 
+    def test_send_text_command_uses_the_alexa_website_host(self):
+        self.mock_response()
+        self.client.api_host = 'api.eu.amazonalexa.com'
+        device = {
+            'deviceOwnerCustomerId': 'customer-1',
+            'deviceType': 'device-type-1',
+            'serialNumber': 'serial-1',
+        }
+
+        self.client.send_text_command(device, 'frage zero mukke, pausiere', locale='de-DE')
+
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://alexa.amazon.com/api/behaviors/preview')
+
     def test_send_text_command_sends_the_locale_of_the_command(self):
         self.mock_response()
         device = {

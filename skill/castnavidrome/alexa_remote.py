@@ -151,13 +151,16 @@ class AlexaTextCommandClient:
 
         return cookies
 
-    def _request(self, path: str, payload: dict = None, locale: str = 'en-US') -> bytes:
+    def _request(self, path: str, payload: dict = None, locale: str = 'en-US',
+                 endpoint_host: str = None) -> bytes:
         domain = self.domain
         # Normalize domain: 'amazon.de' -> 'de', 'amazon.com' -> 'com'
         domain_key = domain.split('amazon.')[-1] if 'amazon.' in domain else domain
         # Use the dynamically resolved Alexa API host (from /api/endpoints) when
         # available, otherwise fall back to ``alexa.{domain}``.
-        if self.api_host:
+        if endpoint_host:
+            alexa_host = endpoint_host
+        elif self.api_host:
             alexa_host = self.api_host
         else:
             alexa_host = f'alexa.{self.domain}'
@@ -309,7 +312,6 @@ class AlexaTextCommandClient:
         """
 
         locale = normalize_locale(locale)
-
         sequence = {
             '@type': 'com.amazon.alexa.behaviors.model.Sequence',
             'startNode': {
@@ -330,7 +332,8 @@ class AlexaTextCommandClient:
             'sequenceJson': json.dumps(sequence, separators=(',', ':')),
             'status': 'ENABLED',
         }
-        self._request('/api/behaviors/preview', command, locale=locale)
+        self._request('/api/behaviors/preview', command, locale=locale,
+                  endpoint_host=f'alexa.{self.domain}')
 
     def send_play_command(self, device: dict, skill_name: str, locale: str = 'en-US', playlist_name: str = '') -> None:
         """Ask an Alexa device to play a play list or random music
