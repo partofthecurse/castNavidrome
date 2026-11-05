@@ -377,7 +377,7 @@ Setze `NAVI_ALEXA_CAPTURE_PASSWORD` in deiner `.env`, um die Cookie-Capture-UI z
 NAVI_ALEXA_CAPTURE_PASSWORD=dein-geheimes-passwort
 ```
 
-Stelle außerdem sicher, dass `NAVI_ALEXA_DOMAIN` deinem Amazon-Marktplatz entspricht (z. B. `amazon.com` für US, `amazon.de` für deutsche Konten):
+Setze `NAVI_ALEXA_DOMAIN` auf die Domain, auf der die Alexa-Webanmeldung tatsächlich endet. Sie muss nicht dem Amazon-Shop-Marktplatz entsprechen: Leitet die Anmeldung auf `amazon.com` weiter, verwende `amazon.com` auch mit einem deutschen Amazon-Konto. Die Gerätesprache wird unabhängig davon über `NAVI_ALEXA_LOCALE` festgelegt.
 
 ```env
 NAVI_ALEXA_DOMAIN=amazon.com

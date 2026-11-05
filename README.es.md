@@ -377,7 +377,7 @@ Configura `NAVI_ALEXA_CAPTURE_PASSWORD` en tu `.env` para proteger la interfaz d
 NAVI_ALEXA_CAPTURE_PASSWORD=tu-contraseña-secreta
 ```
 
-Asegúrate también que `NAVI_ALEXA_DOMAIN` corresponda al mercado de Amazon (por ejemplo `amazon.com` para US, `amazon.de` para cuentas alemanas):
+Configura `NAVI_ALEXA_DOMAIN` con el dominio al que llega realmente el inicio de sesión web de Alexa. Puede ser distinto del mercado de la tienda de Amazon: si el inicio de sesión redirige a `amazon.com`, usa `amazon.com` también con una cuenta alemana. Configura el idioma del dispositivo por separado con `NAVI_ALEXA_LOCALE`.
 
 ```env
 NAVI_ALEXA_DOMAIN=amazon.com

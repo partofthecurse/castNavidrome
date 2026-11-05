@@ -14,6 +14,16 @@ class CookieCaptureProxyTests(unittest.TestCase):
         manager._login = MagicMock()
         manager._login.get_csrf = AsyncMock(return_value=True)
         manager._login.test_loggedin = AsyncMock(return_value=True)
+        manager._proxy = SimpleNamespace(
+            session=SimpleNamespace(cookies={'session-id': 'session-value'})
+        )
+        events = []
+        manager._login.session.cookie_jar.update_cookies.side_effect = (
+            lambda *args, **kwargs: events.append('copy-cookies')
+        )
+        manager._login.get_csrf.side_effect = (
+            lambda: events.append('get-csrf') or True
+        )
         cookies = {
             'session-id': 'session-value',
             'csrf': 'csrf-value',
@@ -28,6 +38,52 @@ class CookieCaptureProxyTests(unittest.TestCase):
             cookies=cookies,
             rebuild_session=False,
         )
+        self.assertEqual(events, ['copy-cookies', 'get-csrf'])
+
+    def test_csrf_fetch_falls_back_to_amazon_com_after_marketplace_domain(self):
+        class FakeCookieJar(list):
+            def update_cookies(self, cookies, url):
+                self.extend(SimpleNamespace(key=name, value=value)
+                            for name, value in cookies.items())
+
+        class FakeResponse:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def read(self):
+                return b''
+
+        class FakeSession:
+            def __init__(self):
+                self.cookie_jar = FakeCookieJar()
+                self.urls = []
+
+            def get(self, url, timeout):
+                url = str(url)
+                self.urls.append(url)
+                if 'alexa.amazon.com/' in url:
+                    self.cookie_jar.append(SimpleNamespace(key='csrf', value='csrf-value'))
+                return FakeResponse()
+
+        manager = AlexaCookieCaptureProxy()
+        session = FakeSession()
+        manager._login = SimpleNamespace(url='amazon.de', session=session)
+        manager._proxy = SimpleNamespace(
+            session=SimpleNamespace(cookies={'session-id': 'session-value'})
+        )
+
+        result = asyncio.run(manager._fetch_alexa_csrf())
+
+        self.assertTrue(result)
+        self.assertEqual(session.urls, [
+            'https://alexa.amazon.de/api/language',
+            'https://alexa.amazon.com/api/language',
+        ])
 
     def test_auto_save_persists_validated_cookies_without_manual_post(self):
         manager = AlexaCookieCaptureProxy()

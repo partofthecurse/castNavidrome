@@ -166,6 +166,28 @@ class AlexaCookieCaptureProxy:
     def has_csrf(self):
         return any(name.lower() == 'csrf' for name in self.cookies())
 
+    def _alexa_csrf_urls(self):
+        domain = getattr(self._login, 'url', 'amazon.com')
+        domains = [domain]
+        if domain.lower() != 'amazon.com':
+            domains.append('amazon.com')
+        return [f'https://alexa.{item}/api/language' for item in domains]
+
+    def _copy_proxy_cookies_to_login_session(self, alexa_url):
+        if self._login is None or self._login.session is None or self._proxy is None:
+            return 0
+
+        proxy_cookies = self._proxy.session.cookies
+        try:
+            cookies = dict(proxy_cookies.items())
+        except AttributeError:
+            cookies = {cookie.name: cookie.value for cookie in proxy_cookies.jar}
+
+        if cookies:
+            self._login.session.cookie_jar.update_cookies(cookies, URL(alexa_url))
+
+        return len(cookies)
+
     async def _fetch_alexa_csrf(self) -> bool:
         """Request the Alexa domain to trigger Amazon to set the csrf cookie.
 
@@ -184,64 +206,30 @@ class AlexaCookieCaptureProxy:
         if session is None:
             logger.debug('_fetch_alexa_csrf: _login.session is None')
             return False
-        try:
-            domain = getattr(self._login, 'url', 'amazon.com')
-            if domain.startswith('amazon.'):
-                tld = domain.split('amazon.')[-1]
-            else:
-                tld = domain
-            alexa_url = f'https://alexa.amazon.{tld}/api/language'
+        for alexa_url in self._alexa_csrf_urls():
+            try:
+                copied = self._copy_proxy_cookies_to_login_session(alexa_url)
+                if copied:
+                    logger.debug('_fetch_alexa_csrf: copied %s proxy cookies into session', copied)
 
-            # Copy captured proxy cookies into the aiohttp session so they
-            # are sent with the Alexa request.
-            if self._proxy is not None:
-                proxy_cookie_dict = {}
-                try:
-                    proxy_cookie_dict = dict(self._proxy.session.cookies.items())
-                except AttributeError:
-                    for cookie in self._proxy.session.cookies.jar:
-                        proxy_cookie_dict[cookie.name] = cookie.value
-                if proxy_cookie_dict:
-                    session.cookie_jar.update_cookies(
-                        proxy_cookie_dict, URL(alexa_url)
-                    )
-                    logger.debug(
-                        '_fetch_alexa_csrf: copied %s proxy cookies into session',
-                        len(proxy_cookie_dict),
-                    )
+                logger.debug('_fetch_alexa_csrf: requesting %s', alexa_url)
+                async with session.get(alexa_url, timeout=10) as resp:
+                    await resp.read()
 
-            logger.debug(
-                '_fetch_alexa_csrf: requesting %s (domain=%s)', alexa_url, domain
-            )
-            # Log cookies before the request
-            before = {
-                c.key: c.value
-                for c in session.cookie_jar
-                if c.key.lower() == 'csrf'
-            }
-            logger.debug('_fetch_alexa_csrf: cookies before: %s', before)
-            async with session.get(alexa_url, timeout=10) as resp:
-                await resp.read()
-            # Log cookies after the request
-            after = {
-                c.key: c.value
-                for c in session.cookie_jar
-                if c.key.lower() == 'csrf'
-            }
-            logger.debug('_fetch_alexa_csrf: cookies after: %s', after)
-            logger.debug(
-                '_fetch_alexa_csrf: response status=%s, url=%s',
-                resp.status,
-                resp.url,
-            )
-            return True
-        except Exception:
-            logger.exception('_fetch_alexa_csrf: request failed')
-            return False
+                if any(cookie.key.lower() == 'csrf' for cookie in session.cookie_jar):
+                    logger.debug('_fetch_alexa_csrf: CSRF cookie received from %s', alexa_url)
+                    return True
+                logger.debug('_fetch_alexa_csrf: no CSRF cookie received from %s', alexa_url)
+            except Exception as error:
+                logger.warning('_fetch_alexa_csrf: request to %s failed (%s)',
+                               URL(alexa_url).host, type(error).__name__)
+
+        return False
 
     async def _validated_cookies(self):
         cookies = await self._read_cookies()
         if not any(name.lower() == 'csrf' for name in cookies):
+            self._copy_proxy_cookies_to_login_session(self._alexa_csrf_urls()[0])
             if not await self._login.get_csrf():
                 # alexapy's get_csrf() could not discover the csrf cookie.
                 # Amazon sets it only on a request to the Alexa domain, so try
@@ -250,9 +238,7 @@ class AlexaCookieCaptureProxy:
                     'get_csrf() did not find csrf; trying direct Alexa request'
                 )
                 await self._fetch_alexa_csrf()
-                cookies = await self._read_cookies()
-            else:
-                cookies = await self._read_cookies()
+            cookies = await self._read_cookies()
         if not any(name.lower() == 'csrf' for name in cookies):
             return {}
         if not await self._login.test_loggedin(

@@ -393,7 +393,7 @@ Set `NAVI_ALEXA_CAPTURE_PASSWORD` in your `.env` to protect the cookie capture U
 NAVI_ALEXA_CAPTURE_PASSWORD=your-secret-password
 ```
 
-Also ensure `NAVI_ALEXA_DOMAIN` matches your Amazon marketplace (e.g. `amazon.com` for US, `amazon.de` for German accounts):
+Set `NAVI_ALEXA_DOMAIN` to the domain where Alexa web sign-in actually ends. It may differ from your Amazon retail marketplace: if sign-in redirects to `amazon.com`, use `amazon.com` even with a German Amazon account. Set the device language separately with `NAVI_ALEXA_LOCALE`.
 
 ```env
 NAVI_ALEXA_DOMAIN=amazon.com
