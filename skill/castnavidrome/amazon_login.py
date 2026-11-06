@@ -18,6 +18,7 @@ import os
 import shutil
 import struct
 import tempfile
+import threading
 import time
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -361,6 +362,14 @@ class AioAmazonSession:
         self.login_data_file = Path(
             login_data_file or self.cookie_file.parent / DEFAULT_AIO_LOGIN_SUBPATH
         )
+        self._worker_lock = threading.Lock()
+        self._worker_loop = None
+        self._worker_thread = None
+        self._closed = False
+        self._operation_lock = None
+        self._shared_context = None
+        self._shared_api = None
+        self._shared_devices = None
 
     @staticmethod
     def _totp_code(secret: str, timestamp: float = None) -> str:
@@ -485,27 +494,101 @@ class AioAmazonSession:
     def list_devices(self) -> list:
         if not self.is_configured:
             raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
-        return self._run(self._async_list_devices())
+        return self._run_shared(self._async_list_devices)
 
     async def _async_list_devices(self) -> list:
-        async with self._connected_api() as (api, devices):
-            customer_id = api._session_state_data.account_customer_id
-            return [self._device_record(device, customer_id) for device in devices.values()]
+        async with self._get_operation_lock():
+            try:
+                already_connected = self._shared_api is not None
+                api, devices = await self._shared_connection()
+                if already_connected:
+                    devices = await api.get_devices_data()
+                    self._shared_devices = devices
+                customer_id = api._session_state_data.account_customer_id
+                return [self._device_record(device, customer_id) for device in devices.values()]
+            except Exception:
+                await self._disconnect_shared()
+                raise
 
     def send_text_command(self, device: dict, text: str, locale: str = 'en-US') -> None:
         if not self.is_configured:
             raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
-        self._run(self._async_send_text_command(device, text, locale))
+        self._run_shared(self._async_send_text_command, device, text, locale)
 
     async def _async_send_text_command(self, device: dict, text: str, locale: str) -> None:
-        async with self._connected_api() as (api, devices):
-            serial = device.get('serialNumber') or ''
-            target = devices.get(serial)
-            if target is None:
-                raise AmazonLoginError('The Alexa device of this renderer is unknown.')
+        async with self._get_operation_lock():
+            try:
+                api, devices = await self._shared_connection()
+                serial = device.get('serialNumber') or ''
+                target = devices.get(serial)
+                if target is None:
+                    devices = await api.get_devices_data()
+                    self._shared_devices = devices
+                    target = devices.get(serial)
+                if target is None:
+                    raise AmazonLoginError('The Alexa device of this renderer is unknown.')
 
-            api._session_state_data._language = locale
-            await api.call_alexa_text_command(target, text)
-            pending = list(api._sequence_handler._tasks)
-            if pending:
-                await asyncio.gather(*pending)
+                api._session_state_data._language = locale
+                await api.call_alexa_text_command(target, text)
+                pending = list(api._sequence_handler._tasks)
+                if pending:
+                    await asyncio.gather(*pending)
+            except Exception:
+                await self._disconnect_shared()
+                raise
+
+    def _run_shared(self, method, *args):
+        with self._worker_lock:
+            if self._closed:
+                raise AmazonLoginError('The Amazon session has been closed.')
+            if self._worker_loop is None:
+                self._worker_loop = asyncio.new_event_loop()
+                self._worker_thread = threading.Thread(
+                    target=self._worker_loop.run_forever, name='alexa-command-session', daemon=True,
+                )
+                self._worker_thread.start()
+            future = asyncio.run_coroutine_threadsafe(method(*args), self._worker_loop)
+        return future.result()
+
+    def _get_operation_lock(self):
+        if self._operation_lock is None:
+            self._operation_lock = asyncio.Lock()
+        return self._operation_lock
+
+    async def _shared_connection(self):
+        if self._shared_api is None:
+            context = self._connected_api()
+            api, devices = await context.__aenter__()
+            self._shared_context = context
+            self._shared_api = api
+            self._shared_devices = devices
+        return self._shared_api, self._shared_devices
+
+    async def _disconnect_shared(self):
+        context = self._shared_context
+        self._shared_context = None
+        self._shared_api = None
+        self._shared_devices = None
+        if context is not None:
+            await context.__aexit__(None, None, None)
+
+    async def _close_shared(self):
+        async with self._get_operation_lock():
+            await self._disconnect_shared()
+
+    def close(self) -> None:
+        with self._worker_lock:
+            if self._closed:
+                return
+            self._closed = True
+            loop = self._worker_loop
+            thread = self._worker_thread
+            if loop is None:
+                return
+            future = asyncio.run_coroutine_threadsafe(self._close_shared(), loop)
+        try:
+            future.result()
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join()
+            loop.close()

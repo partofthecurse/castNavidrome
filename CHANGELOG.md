@@ -5,6 +5,23 @@ All notable changes to castNavidrome are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-06
+
+### Added
+- Report Echo playback state changes to UPnP clients when Amazon media status is available.
+- Send album cover metadata to Alexa devices, including devices without a reported display interface.
+
+### Changed
+- Reuse the Amazon session and device list for renderer commands to reduce response times.
+- Use aioamazondevices for renderer authentication and text commands.
+- Improve UPnP discovery, renderer descriptions and protocol compatibility.
+- Upgrade the container runtime to Python 3.14.
+
+### Fixed
+- Cancel automatic queue advancement when an Echo pause or stop is detected.
+- Improve Alexa cookie validation and regional text-command routing.
+- Avoid a duplicate Navidrome song lookup when loading a renderer queue.
+
 ## [0.10.0] — Prepared for publication
 
 ### Added
@@ -39,3 +56,4 @@ Upstream features are preserved; adopted features and local changes are listed i
 This release is **not published** — everything is prepared and awaits explicit release approval.
 
 [0.10.0]: https://github.com/castnavidrome/castnavidrome/releases/tag/0.10.0
+[0.2.0]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.0

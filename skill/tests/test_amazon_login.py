@@ -1,7 +1,10 @@
+import asyncio
 import os
 import tempfile
+import threading
 import time
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -258,6 +261,96 @@ class AioAmazonSessionTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.cookie_file = Path(self.temp_dir.name) / 'alexa.cookies'
         self.session = AioAmazonSession(cookie_file=self.cookie_file)
+        self.addCleanup(self.session.close)
+
+    def test_device_discovery_and_commands_reuse_connection(self):
+        device = SimpleNamespace(account_name='Echo', device_owner_customer_id='owner',
+                                 device_type='type', device_family='ECHO',
+                                 serial_number='serial-1', online=True)
+        api = SimpleNamespace(
+            _session_state_data=SimpleNamespace(account_customer_id='owner', _language=''),
+            _sequence_handler=SimpleNamespace(_tasks=set()),
+            call_alexa_text_command=AsyncMock(),
+        )
+        connections = []
+
+        @asynccontextmanager
+        async def connected_api():
+            connections.append('open')
+            try:
+                yield api, {'serial-1': device}
+            finally:
+                connections.append('closed')
+
+        with patch.dict(os.environ, {'NAVI_AMAZON_USER': 'user', 'NAVI_AMAZON_PASS': 'pass',
+                                     'NAVI_AMAZON_TOTP_SECRET': 'secret'}):
+            with patch.object(self.session, '_connected_api', connected_api):
+                self.session.list_devices()
+                self.session.send_text_command({'serialNumber': 'serial-1'}, 'pause', 'de-DE')
+                self.session.send_text_command({'serialNumber': 'serial-1'}, 'play', 'de-DE')
+                self.assertEqual(connections, ['open'])
+                self.session.close()
+
+        self.assertEqual(connections, ['open', 'closed'])
+        self.assertEqual(api.call_alexa_text_command.await_count, 2)
+
+    def test_failed_command_reconnects_on_next_command_without_retrying_it(self):
+        device = object()
+        api = SimpleNamespace(
+            _session_state_data=SimpleNamespace(_language=''),
+            _sequence_handler=SimpleNamespace(_tasks=set()),
+            call_alexa_text_command=AsyncMock(side_effect=[RuntimeError('connection failed'), None]),
+        )
+        connections = []
+
+        @asynccontextmanager
+        async def connected_api():
+            connections.append('open')
+            try:
+                yield api, {'serial-1': device}
+            finally:
+                connections.append('closed')
+
+        with patch.dict(os.environ, {'NAVI_AMAZON_USER': 'user', 'NAVI_AMAZON_PASS': 'pass',
+                                     'NAVI_AMAZON_TOTP_SECRET': 'secret'}):
+            with patch.object(self.session, '_connected_api', connected_api):
+                with self.assertRaisesRegex(RuntimeError, 'connection failed'):
+                    self.session.send_text_command({'serialNumber': 'serial-1'}, 'pause')
+                self.session.send_text_command({'serialNumber': 'serial-1'}, 'play')
+                self.session.close()
+
+        self.assertEqual(connections, ['open', 'closed', 'open', 'closed'])
+        self.assertEqual([call.args[1] for call in api.call_alexa_text_command.await_args_list], ['pause', 'play'])
+
+    def test_parallel_commands_do_not_mix_locales(self):
+        device = object()
+        language = SimpleNamespace(_language='')
+        seen = []
+
+        async def send(target, text):
+            await asyncio.sleep(0.02)
+            seen.append((text, language._language))
+
+        api = SimpleNamespace(_session_state_data=language,
+                              _sequence_handler=SimpleNamespace(_tasks=set()),
+                              call_alexa_text_command=send)
+
+        @asynccontextmanager
+        async def connected_api():
+            yield api, {'serial-1': device}
+
+        with patch.dict(os.environ, {'NAVI_AMAZON_USER': 'user', 'NAVI_AMAZON_PASS': 'pass',
+                                     'NAVI_AMAZON_TOTP_SECRET': 'secret'}):
+            with patch.object(self.session, '_connected_api', connected_api):
+                threads = [threading.Thread(target=self.session.send_text_command,
+                                            args=({'serialNumber': 'serial-1'}, text, locale))
+                           for text, locale in [('pause', 'de-DE'), ('play', 'en-US')]]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+        self.assertCountEqual(seen, [('pause', 'de-DE'), ('play', 'en-US')])
 
     def test_totp_matches_the_rfc_6238_sha1_example(self):
         self.assertEqual(

@@ -582,6 +582,7 @@ class RendererHost:
             self.ssdp.announce_byebye()
         self.ssdp.stop()
         self.server.stop()
+        self.aioamazon_session.close()
 
     def wait(self) -> None:
         self._stop_event.wait()
