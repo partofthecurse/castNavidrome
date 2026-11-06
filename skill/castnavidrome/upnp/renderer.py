@@ -144,6 +144,9 @@ class MediaRenderer:
         self.volume = 50
         self.muted = False
         self.started_at = None
+        self._echo_playback_confirmed = False
+        self._echo_pause_confirmed = False
+        self._paused_elapsed = 0
         self._advance_timer = None
         self._volume_read_at = 0.0
         self._last_volume_change_at = 0.0
@@ -323,7 +326,7 @@ class MediaRenderer:
         """
 
         resolved = self._query('resolve_track') or {}
-        tracks = self._query('resolve_queue') or []
+        tracks = self._query('resolve_queue', resolved=resolved) or []
 
         self.queue = [normalise_track(track) for track in tracks]
 
@@ -439,6 +442,7 @@ class MediaRenderer:
         self._update_next_entry()
 
         self._set_transport_state(TRANSPORT_TRANSITIONING)
+        self._echo_playback_confirmed = False
 
         try:
             self._command('play_track', track=entry, quiet=quiet)
@@ -480,7 +484,8 @@ class MediaRenderer:
         if duration <= 0:
             return
 
-        timer = threading.Timer(duration, self._advance)
+        remaining = max(0, duration - self.elapsed_seconds())
+        timer = threading.Timer(remaining, self._advance)
         timer.daemon = True
         self._advance_timer = timer
         timer.start()
@@ -533,6 +538,41 @@ class MediaRenderer:
             logger.warning('Could not play the next track of the renderer %s: %s',
                            self.friendly_name, error)
 
+    def sync_echo_state(self, state: str, position=None, duration=None, started_at=None,
+                        title_matches=False) -> None:
+        if started_at != self.started_at or self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+            return
+
+        state = (state or '').upper()
+        if state == 'PLAYING':
+            if self.transport_state == TRANSPORT_PAUSED and not self._echo_pause_confirmed:
+                return
+            self._echo_playback_confirmed = True
+            if self.transport_state == TRANSPORT_PAUSED:
+                self.started_at = time.time() - self._paused_elapsed
+                self._set_transport_state(TRANSPORT_PLAYING)
+                self._schedule_advance()
+            return
+
+        if state not in ('PAUSED', 'STOPPED', 'IDLE'):
+            return
+        if self.transport_state == TRANSPORT_PAUSED and state == 'PAUSED':
+            self._echo_pause_confirmed = True
+            return
+        if not self._echo_playback_confirmed and not title_matches:
+            return
+
+        elapsed = self.elapsed_seconds() if self.transport_state == TRANSPORT_PLAYING else self._paused_elapsed
+        track_duration = duration or int(self.track.get('duration') or 0)
+        progress = position if position is not None else elapsed
+        if track_duration and progress >= track_duration:
+            return
+
+        self._paused_elapsed = max(0, int(progress))
+        self._cancel_advance()
+        self._echo_pause_confirmed = state == 'PAUSED'
+        self._set_transport_state(TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED)
+
     #
     # AVTransport actions
     #
@@ -543,6 +583,7 @@ class MediaRenderer:
             raise SoapError('No media has been set for this renderer.', 701)
 
         self._set_transport_state(TRANSPORT_TRANSITIONING)
+        self._echo_playback_confirmed = False
 
         try:
             self._command('play', track=self.track)
@@ -568,6 +609,8 @@ class MediaRenderer:
         except RendererCommandError as error:
             raise SoapError(str(error), 701) from None
 
+        self._paused_elapsed = self.elapsed_seconds()
+        self._echo_pause_confirmed = False
         self._cancel_advance()
         self._set_transport_state(TRANSPORT_PAUSED)
 

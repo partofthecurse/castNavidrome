@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from castnavidrome.upnp.didl import build_didl_metadata, parse_didl_metadata
 from castnavidrome.upnp.renderer import (
@@ -82,7 +83,7 @@ class FakeController:
         self.calls.append(('get_volume',))
         return 7
 
-    def resolve_queue(self, renderer):
+    def resolve_queue(self, renderer, resolved=None):
         return self.queue
 
     def report_now_playing(self, renderer, track=None, client=None):
@@ -256,6 +257,77 @@ class QueueTests(unittest.TestCase):
         self.controller = FakeController(QUEUE)
         device = {'name': 'Echo Dot', 'online': True}
         self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', device, self.controller)
+
+    def test_echo_pause_cancels_advance_and_notifies_clients(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        events = []
+        self.renderer.event_sink = lambda *event: events.append(event)
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_echo_state('PAUSED', 20, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertIsNone(self.renderer._advance_timer)
+        self.assertTrue(events)
+        self.renderer._advance()
+        self.assertEqual(self.renderer.queue_index, 0)
+
+    def test_echo_resume_schedules_only_the_remaining_time(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_echo_state('PAUSED', 20, 201, started_at)
+        with mock.patch('castnavidrome.upnp.renderer.threading.Timer') as timer:
+            self.renderer.sync_echo_state('PLAYING', 20, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertEqual(timer.call_args.args[0], 181)
+
+    def test_client_pause_ignores_stale_playing_until_echo_confirms_pause(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.pause()
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.renderer.sync_echo_state('PAUSED', 10, 201, started_at)
+        with mock.patch('castnavidrome.upnp.renderer.threading.Timer'):
+            self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_echo_stop_cancels_advance(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_echo_state('STOPPED', 20, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertIsNone(self.renderer._advance_timer)
+
+    def test_echo_stop_before_first_playing_update_matches_title(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.renderer.sync_echo_state('PAUSED', 1, 201, self.renderer.started_at, title_matches=True)
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertIsNone(self.renderer._advance_timer)
+
+    def test_unconfirmed_echo_stop_without_title_is_ignored(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.renderer.sync_echo_state('STOPPED', 1, 201, self.renderer.started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer._cancel_advance()
+
+    def test_stale_and_natural_end_states_do_not_cancel_advance(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_echo_state('STOPPED', 20, 201, started_at - 1)
+        self.renderer.sync_echo_state('STOPPED', 201, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertIsNotNone(self.renderer._advance_timer)
+        self.renderer._cancel_advance()
 
     def test_the_queue_is_built_from_the_collection(self):
         self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)

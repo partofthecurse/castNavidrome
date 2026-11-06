@@ -108,10 +108,7 @@ def start_playback(mode: str, text: str, card_data: dict, track_details: Track, 
     """
     art_url = get_art_url(NAVI_BASE_URL, track_details.cover_art)
 
-    if device_has_screen(handler_input) and art_url:
-        # Devices with a screen (for example an Echo Show) show the cover art
-        # of the current track during playback, as a small image and as the
-        # background of the now-playing screen.
+    if art_url:
         cover_image = display.Image(
             content_description=track_details.title,
             sources=[display.ImageInstance(url=art_url)],

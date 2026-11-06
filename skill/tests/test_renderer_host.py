@@ -1,3 +1,4 @@
+import asyncio
 import os
 import signal
 import tempfile
@@ -5,8 +6,10 @@ import threading
 import time
 import unittest
 import urllib.request
+from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from castnavidrome.alexa_remote import AlexaRemoteError
 from castnavidrome.renderer_host import AlexaRendererController, RendererHost
@@ -235,6 +238,45 @@ class RendererHostTests(unittest.TestCase):
 
         check_cookie.assert_called_once()
 
+    def test_echo_status_is_routed_to_matching_renderer(self):
+        self.host.sync_renderers([make_device('Echo Dot', 'serial-1'), make_device('Echo Kitchen', 'serial-2')])
+        renderers = self.host.server.renderers()
+        for renderer in renderers:
+            renderer.transport_state = 'PLAYING'
+            renderer.started_at = 100
+            renderer.track['id'] = '42'
+            renderer.track['title'] = 'Some Song'
+            renderer.sync_echo_state = MagicMock()
+
+        states = {
+            'serial-1': SimpleNamespace(player_state='PAUSED', media_position=10,
+                                        media_length=100, now_playing_title='Some Song'),
+            'serial-2': SimpleNamespace(player_state='PAUSED', media_position=20,
+                                        media_length=100, now_playing_title='Other Song'),
+        }
+
+        class MediaHandler:
+            sync_media_state = AsyncMock()
+
+            @property
+            async def media_states(self):
+                return states
+
+        @asynccontextmanager
+        async def connected_api():
+            yield SimpleNamespace(_media_handler=MediaHandler()), {}
+
+        async def stop_polling(_):
+            self.host._stop_event.set()
+
+        with patch.object(self.host.aioamazon_session, '_connected_api', connected_api):
+            with patch('castnavidrome.renderer_host.asyncio.sleep', side_effect=stop_polling):
+                asyncio.run(self.host._poll_echo_states())
+
+        by_serial = {renderer.device['serialNumber']: renderer for renderer in renderers}
+        by_serial['serial-1'].sync_echo_state.assert_called_once_with('PAUSED', 10, 100, 100, title_matches=True)
+        by_serial['serial-2'].sync_echo_state.assert_not_called()
+
 
 class FakeAlexaClient:
     """A stand in for the client that sends the commands to the Alexa device."""
@@ -326,6 +368,13 @@ class ControllerQueueTests(unittest.TestCase):
             subsonic_connection=self.subsonic,
         )
         self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', make_device(), self.controller)
+
+    def test_loading_a_song_queue_resolves_the_song_only_once(self):
+        self.subsonic.song = {'id': '42', 'title': 'Some Song', 'albumId': 'album-1'}
+        self.subsonic.album = [self.subsonic.song]
+        with patch.object(self.subsonic, 'get_song', wraps=self.subsonic.get_song) as get_song:
+            self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', '')
+        get_song.assert_called_once_with('42')
 
     def test_the_queue_of_a_track_is_the_album_of_the_track(self):
         self.subsonic.song = {'id': '42', 'title': 'Some Song', 'albumId': 'album-1'}

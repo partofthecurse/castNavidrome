@@ -1,8 +1,7 @@
 """Tests for the playback controller of the skill.
 
-The module checks that the cover art of the current track is only attached
-to the playback directive when the device has a screen (for example an Echo
-Show), so that the album cover is shown on Echo Show devices.
+The module checks that the cover art of the current track is attached
+to the playback directive, including when display capabilities are absent.
 """
 
 import unittest
@@ -176,12 +175,12 @@ class StartPlaybackTests(unittest.TestCase):
             'https://skill.example.test/cover/cover-1',
         )
 
-    def test_omits_cover_art_when_device_has_no_screen(self):
+    def test_attaches_cover_art_when_display_interface_is_missing(self):
         handler_input = self._play(with_screen=False)
         directive = handler_input.response_builder.directives[0]
         metadata = directive.audio_item.metadata
-        self.assertIsNone(metadata.art)
-        self.assertIsNone(metadata.background_image)
+        self.assertEqual(metadata.art.sources[0].url, 'https://skill.example.test/cover/cover-1')
+        self.assertEqual(metadata.background_image.sources[0].url, 'https://skill.example.test/cover/cover-1')
         self.assertEqual(metadata.title, 'Song title')
         self.assertEqual(metadata.subtitle, 'Artist name')
 

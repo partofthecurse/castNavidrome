@@ -371,6 +371,8 @@ Jedes übernommene Feature und sein Ursprung sind in [CREDITS.md](CREDITS.md) mi
 
 Wenn `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS` und `NAVI_AMAZON_TOTP_SECRET` gesetzt sind, meldet sich der Renderer beim Start automatisch mit `aioamazondevices` an; ein Browser-Login-Klick ist nicht nötig. Der wiederverwendbare Login-Zustand wird unter `/var/lib/castnavidrome/aioamazondevices/login.json` im `./state`-Volume mit Dateirechten `0600` gespeichert. `NAVI_ALEXA_LOCALE` steuert die Sprache der Textbefehle unabhängig von der Amazon-Domain.
 
+Mit diesem Login fragt der Renderer während der Wiedergabe etwa alle fünf Sekunden den von Amazon gemeldeten Echo-Status ab und meldet erkannte Pausen und Stopps per UPnP an den Client. Bei fehlenden oder verzögerten Statusdaten bleibt der letzte bekannte Zustand bestehen; der Browser-Cookie-Fallback allein aktiviert diese Überwachung nicht.
+
 Der bisherige Browser-Capture-Proxy bleibt als Fallback verfügbar, falls Amazon einen zusätzlichen Challenge-Schritt verlangt oder die automatische Anmeldung nicht möglich ist.
 
 #### Browser-Fallback konfigurieren

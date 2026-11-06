@@ -5,6 +5,7 @@ and exposes every remaining device as a UPnP media renderer. The renderers
 are announced via SSDP and controlled through the Alexa text command API.
 """
 
+import asyncio
 import logging
 import os
 import signal
@@ -219,7 +220,7 @@ class AlexaRendererController:
 
         return {}
 
-    def resolve_queue(self, renderer: MediaRenderer) -> list:
+    def resolve_queue(self, renderer: MediaRenderer, resolved=None) -> list:
         """Build the queue of the renderer from the collection
 
         The queue of a DLNA client is not known to the renderer, only the
@@ -235,6 +236,9 @@ class AlexaRendererController:
 
         if not self.subsonic_connection:
             return []
+
+        if resolved:
+            return self._album_queue(resolved)
 
         identifier = self._identifier_from_uri(renderer)
 
@@ -567,6 +571,9 @@ class RendererHost:
             )
             self._cookie_watch_thread.start()
 
+        if self.aioamazon_session.is_configured:
+            threading.Thread(target=self._watch_echo_states, name='renderer-echo-state', daemon=True).start()
+
     def stop(self) -> None:
         logger.info('Stopping the castNavidrome renderer host.')
         self._stop_event.set()
@@ -597,6 +604,37 @@ class RendererHost:
     def _cookie_watch_loop(self) -> None:
         while not self._stop_event.wait(1):
             self._maybe_restart_on_cookie_change()
+
+    def _watch_echo_states(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                asyncio.run(self._poll_echo_states())
+            except Exception as error:
+                logger.warning('Could not update Echo playback states: %s', error)
+            if self._stop_event.wait(5):
+                return
+
+    async def _poll_echo_states(self) -> None:
+        async with self.aioamazon_session._connected_api() as (api, devices):
+            while not self._stop_event.is_set():
+                renderers = self.server.renderers()
+                snapshots = [(renderer, renderer.started_at, renderer.track.get('id')) for renderer in renderers
+                             if renderer.transport_state in ('PLAYING', 'PAUSED_PLAYBACK')]
+                if snapshots:
+                    await api._media_handler.sync_media_state(devices)
+                    states = await api._media_handler.media_states
+                    for renderer, started_at, track_id in snapshots:
+                        if renderer.track.get('id') != track_id:
+                            continue
+                        state = states.get(renderer.device.get('serialNumber'))
+                        if state is not None:
+                            title = state.now_playing_title
+                            if title and title.casefold() != renderer.track.get('title', '').casefold():
+                                continue
+                            renderer.sync_echo_state(state.player_state, state.media_position,
+                                                     state.media_length, started_at,
+                                                     title_matches=bool(title))
+                await asyncio.sleep(5)
 
     def _refresh_loop(self) -> None:
         if not self.disable_refresh:
