@@ -56,6 +56,8 @@ class MediaQueue:
         accepted.
         """
 
+        self.renderer_controlled = False
+
         self.pending_skip: str = ''
         """The direction of a skip that is buffered while a track is starting
 
@@ -101,6 +103,12 @@ class MediaQueue:
         """
 
         self.playback_active = active
+
+    def is_renderer_controlled(self) -> bool:
+        return self.renderer_controlled
+
+    def set_renderer_controlled(self, controlled: bool) -> None:
+        self.renderer_controlled = bool(controlled)
 
     def request_skip(self, direction: str) -> None:
         """Buffer a skip request that arrived while a track is starting
@@ -427,6 +435,7 @@ class MediaQueue:
         self.history.clear()
         self.buffer.clear()
         self.pending_skip = ''
+        self.renderer_controlled = False
         self.current_track = Track()
         """Reset the current track so that a new play list starts from a
         clean state and no stale track is carried over into the history

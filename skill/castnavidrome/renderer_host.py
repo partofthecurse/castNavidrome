@@ -12,6 +12,7 @@ import signal
 import socket
 import threading
 import time
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 from castnavidrome.alexa_device_filter import DeviceFilter
@@ -25,6 +26,7 @@ from castnavidrome.alexa_remote import (
 )
 from castnavidrome.localization import normalize_locale
 from castnavidrome.renderer_registry import RendererRegistry
+from castnavidrome.renderer_bridge import RendererBridge, RendererBridgeServer
 from castnavidrome.upnp.renderer import MediaRenderer, RendererCommandError
 from castnavidrome.upnp.server import RendererServer
 from castnavidrome.upnp.ssdp import SsdpServer
@@ -97,6 +99,7 @@ class AlexaRendererController:
         self.subsonic_connection = subsonic_connection
         self.announce = announce if announce in ANNOUNCE_MODES else DEFAULT_ANNOUNCE
         self.aioamazon_session = aioamazon_session
+        self.bridge = RendererBridge()
 
     def _client(self) -> AlexaTextCommandClient:
         return AlexaTextCommandClient(
@@ -138,6 +141,25 @@ class AlexaRendererController:
 
         return quiet
 
+    def _send_track(self, renderer: MediaRenderer, track: dict, quiet: bool) -> None:
+        identifier = track.get('id') or ''
+        if identifier:
+            try:
+                self.bridge.register_start(renderer.udid, identifier)
+            except Exception as error:
+                logger.warning('Could not register renderer playback for voice control: %s', error)
+        try:
+            self._send(renderer, build_play_track_text(self.skill_name, track.get('title', ''),
+                                                      track.get('artist', ''), locale=self.locale,
+                                                      quiet=self._quiet(quiet)))
+        except Exception:
+            if identifier:
+                try:
+                    self.bridge.cancel_start(renderer.udid, identifier)
+                except Exception as error:
+                    logger.warning('Could not clear renderer playback registration: %s', error)
+            raise
+
     def play(self, renderer: MediaRenderer, track: dict = None) -> None:
         track = track or renderer.track or {}
         title = track.get('title', '')
@@ -153,9 +175,7 @@ class AlexaRendererController:
             self._send(renderer, build_control_text('resume', self.skill_name, locale=self.locale))
             return
 
-        self._send(renderer, build_play_track_text(self.skill_name, title, artist,
-                                                    locale=self.locale,
-                                                    quiet=self._quiet(False)))
+        self._send_track(renderer, dict(track, title=title, artist=artist), quiet=False)
 
     def play_track(self, renderer: MediaRenderer, track: dict = None, quiet: bool = False) -> None:
         """Play a single track of the queue of the renderer
@@ -181,12 +201,9 @@ class AlexaRendererController:
             raise RendererCommandError('The title of the track is unknown.')
 
         if not artist:
-            self._send(renderer, build_control_text('resume', self.skill_name, locale=self.locale))
-            return
+            raise RendererCommandError('The artist of the track is unknown.')
 
-        self._send(renderer, build_play_track_text(self.skill_name, title, artist,
-                                                    locale=self.locale,
-                                                    quiet=self._quiet(quiet)))
+        self._send_track(renderer, dict(track, title=title, artist=artist), quiet=quiet)
 
     def resolve_track(self, renderer: MediaRenderer) -> dict:
         """Look the track of the renderer up in the collection
@@ -219,6 +236,9 @@ class AlexaRendererController:
             return self._track_of(song)
 
         return {}
+
+    def resolve_next_track(self, renderer: MediaRenderer, uri: str, track: dict) -> dict:
+        return self.resolve_track(SimpleNamespace(current_uri=uri, track=track))
 
     def resolve_queue(self, renderer: MediaRenderer, resolved=None) -> list:
         """Build the queue of the renderer from the collection
@@ -462,6 +482,8 @@ class RendererHost:
             announce=self.announce,
             aioamazon_session=self.aioamazon_session,
         )
+        self.controller.bridge = RendererBridge(self.env.get('NAVI_RENDERER_BRIDGE_PATH'))
+        self.bridge_server = RendererBridgeServer(self.controller.bridge, self._handle_voice_queue)
 
         self._last_refresh = 0.0
         self._refresh_lock = threading.Lock()
@@ -551,6 +573,11 @@ class RendererHost:
         # noch leer ist (Clients würden sonst leere M-SEARCH-Antworten erhalten).
         self.refresh()
 
+        try:
+            self.bridge_server.start()
+        except OSError as error:
+            logger.warning('Could not start the renderer voice-control bridge: %s', error)
+
         self.ssdp.start()
 
         # Announce the renderers several times so that clients that start
@@ -578,6 +605,7 @@ class RendererHost:
         logger.info('Stopping the castNavidrome renderer host.')
         self._stop_event.set()
         self._announce_stop.set()
+        self.bridge_server.stop()
         if not getattr(self, 'disable_byebye', False):
             self.ssdp.announce_byebye()
         self.ssdp.stop()
@@ -605,6 +633,22 @@ class RendererHost:
     def _cookie_watch_loop(self) -> None:
         while not self._stop_event.wait(1):
             self._maybe_restart_on_cookie_change()
+
+    def _handle_voice_queue(self, request: dict) -> dict:
+        renderer_id = request.get('renderer')
+        current_id = request.get('current')
+        if not isinstance(renderer_id, str) or not isinstance(current_id, str):
+            return {}
+        renderer = self.server.get_renderer(renderer_id)
+        if renderer is None:
+            return {}
+        if request.get('action') == 'peek':
+            track = renderer.peek_voice_next(current_id)
+            return {'id': track['id']} if track else {}
+        next_id = request.get('next')
+        if request.get('action') == 'commit' and isinstance(next_id, str):
+            return {'ok': renderer.commit_voice_next(current_id, next_id)}
+        return {}
 
     def _watch_echo_states(self) -> None:
         while not self._stop_event.is_set():

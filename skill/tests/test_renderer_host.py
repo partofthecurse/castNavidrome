@@ -64,6 +64,7 @@ class RendererHostTests(unittest.TestCase):
 
         self.env = {
             'NAVI_ALEXA_RENDERER_STATE_FILE': str(Path(self.temp_dir.name) / 'renderers.json'),
+            'NAVI_RENDERER_BRIDGE_PATH': str(Path(self.temp_dir.name) / 'bridge.sqlite3'),
             'NAVI_ALEXA_RENDERER_PORT': '0',
             'NAVI_ALEXA_RENDERER_ADVERTISE_HOST': '127.0.0.1',
             'NAVI_ALEXA_RENDERER_REFRESH_SECONDS': '300',
@@ -114,6 +115,24 @@ class RendererHostTests(unittest.TestCase):
         self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
 
         self.assertEqual(self.host.server.renderers()[0].udid, udid)
+
+    def test_voice_bridge_advances_only_the_bound_renderer(self):
+        self.host.sync_renderers([make_device('Echo Dot', 'serial-1'), make_device('Echo Kitchen', 'serial-2')])
+        renderer = next(item for item in self.host.server.renderers() if item.device['serialNumber'] == 'serial-1')
+        renderer.track = {'id': '42', 'title': 'Current', 'duration': 0}
+        renderer.queue = [dict(renderer.track), {'id': '43', 'title': 'Next', 'duration': 0}]
+        renderer.queue_index = 0
+        renderer.transport_state = 'PLAYING'
+        self.host.controller.bridge.register_start(renderer.udid, '42')
+        self.host.controller.bridge.bind_start('skill-device-1', '42')
+        self.host.bridge_server.start()
+        self.addCleanup(self.host.bridge_server.stop)
+        bridge = self.host.controller.bridge
+        self.assertEqual(bridge.request_next('skill-device-1', '42', 'peek'), {'id': '43'})
+        self.assertEqual(bridge.request_next('skill-device-1', '42', 'commit', '43'), {'ok': True})
+        self.assertEqual(renderer.track['id'], '43')
+        self.assertEqual(bridge.request_next('skill-device-1', '42', 'commit', '43'), {'ok': False})
+        self.assertEqual(bridge.request_next('other-device', '42', 'peek'), {})
 
     def test_the_registry_is_written_during_the_sync(self):
         self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
@@ -333,12 +352,33 @@ class ControllerAnnounceTests(unittest.TestCase):
 
         self.assertEqual(client.sent, ['frage zero mukke, spiele das Lied Himmel von Falke'])
 
+    def test_renderer_track_registers_the_pending_device_match(self):
+        controller, client, renderer = make_controller()
+        controller.bridge = MagicMock()
+        controller.play(renderer, {'id': 'song-1', 'title': 'Himmel', 'artist': 'Falke'})
+        controller.bridge.register_start.assert_called_once_with(renderer.udid, 'song-1')
+        self.assertEqual(len(client.sent), 1)
+
+    def test_failed_track_command_removes_pending_device_match(self):
+        controller, _, renderer = make_controller()
+        controller.bridge = MagicMock()
+        controller._send = MagicMock(side_effect=RendererCommandError('offline'))
+        with self.assertRaises(RendererCommandError):
+            controller.play(renderer, {'id': 'song-1', 'title': 'Himmel', 'artist': 'Falke'})
+        controller.bridge.cancel_start.assert_called_once_with(renderer.udid, 'song-1')
+
     def test_a_track_that_follows_on_its_own_is_played_quietly(self):
         controller, client, renderer = make_controller()
 
         controller.play_track(renderer, {'title': 'Himmel', 'artist': 'Falke'}, quiet=True)
 
         self.assertEqual(client.sent, ['frage zero mukke, spiele das Lied Himmel von Falke leise'])
+
+    def test_next_track_without_artist_does_not_resume_the_old_track(self):
+        controller, client, renderer = make_controller()
+        with self.assertRaises(RendererCommandError):
+            controller.play_track(renderer, {'title': 'Himmel'})
+        self.assertEqual(client.sent, [])
 
     def test_the_announcement_can_be_turned_off(self):
         controller, client, renderer = make_controller(announce='never')
@@ -375,6 +415,17 @@ class ControllerQueueTests(unittest.TestCase):
         with patch.object(self.subsonic, 'get_song', wraps=self.subsonic.get_song) as get_song:
             self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', '')
         get_song.assert_called_once_with('42')
+
+    def test_client_next_track_is_resolved_without_changing_current_track(self):
+        self.subsonic.song = {'id': '99', 'title': 'Playlist Song', 'artist': 'Artist', 'duration': 90}
+        self.renderer.current_uri = 'http://navidrome/rest/stream?id=42'
+        self.renderer.track['title'] = 'Current song'
+        resolved = self.controller.resolve_next_track(
+            self.renderer, 'http://navidrome/rest/stream?id=99', {})
+        self.assertEqual(resolved['id'], '99')
+        self.assertEqual(resolved['title'], 'Playlist Song')
+        self.assertEqual(self.renderer.track['title'], 'Current song')
+        self.assertEqual(self.renderer.current_uri, 'http://navidrome/rest/stream?id=42')
 
     def test_the_queue_of_a_track_is_the_album_of_the_track(self):
         self.subsonic.song = {'id': '42', 'title': 'Some Song', 'albumId': 'album-1'}

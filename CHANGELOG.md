@@ -5,6 +5,19 @@ All notable changes to castNavidrome are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-06
+
+### Added
+- Support spoken next-track commands for renderer playback through an automatically associated Echo and local bridge.
+
+### Changed
+- Prefer the next track supplied by a UPnP client over the album-derived fallback queue.
+- Suppress successful local health-check access logs while retaining other request logs.
+
+### Fixed
+- Prevent stale timers and playback events from advancing or changing the wrong track.
+- Reject ambiguous Echo-to-renderer associations instead of guessing.
+
 ## [0.2.0] - 2026-11-06
 
 ### Added
@@ -57,3 +70,4 @@ This release is **not published** — everything is prepared and awaits explicit
 
 [0.10.0]: https://github.com/castnavidrome/castnavidrome/releases/tag/0.10.0
 [0.2.0]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.0
+[0.2.1]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.1

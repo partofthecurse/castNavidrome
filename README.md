@@ -389,6 +389,8 @@ When `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS`, and `NAVI_AMAZON_TOTP_SECRET` are s
 
 With this login, the renderer checks Amazon's Echo playback status approximately every five seconds during playback and reports detected pauses and stops to UPnP clients. Missing or delayed status updates leave the last known state unchanged; the browser-cookie fallback alone does not enable this monitoring.
 
+When a UPnP client supplies the next track using `SetNextAVTransportURI`, the renderer uses it instead of the album-derived fallback order. Renderer-started playback automatically associates the Echo with the renderer using a recent matching track, enabling spoken next commands to play the next renderer track. Ambiguous or expired associations are not guessed. Both containers require the same writable `state` volume.
+
 The existing browser cookie-capture proxy remains available as a fallback if Amazon requires an additional challenge or automatic sign-in is unavailable.
 
 #### Configure the browser fallback

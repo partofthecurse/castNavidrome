@@ -1,6 +1,8 @@
 import socket
 import unittest
+from xml.sax.saxutils import escape
 
+from castnavidrome.upnp.didl import build_didl_metadata
 from castnavidrome.upnp.renderer import MediaRenderer
 from castnavidrome.upnp.server import RendererServer
 
@@ -76,9 +78,9 @@ class ServerTests(unittest.TestCase):
         self.server.start()
         self.addCleanup(self.server.stop)
 
-    def _post(self, chunked: bool) -> bytes:
+    def _post(self, chunked: bool, body: str = BODY) -> bytes:
         with socket.create_connection(('127.0.0.1', self.server.port), timeout=5) as connection:
-            connection.sendall(build_request(BODY, chunked))
+            connection.sendall(build_request(body, chunked))
 
             data = b''
 
@@ -111,6 +113,25 @@ class ServerTests(unittest.TestCase):
         self._post(chunked=True)
 
         self.assertEqual(self.renderer.client_name, 'DLNA client')
+
+    def test_set_next_uri_updates_the_renderer_queue(self):
+        self.renderer.track = {'id': '42', 'title': 'Current', 'artist': 'Artist', 'duration': 60}
+        self.renderer.queue = [dict(self.renderer.track)]
+        self.renderer.queue_index = 0
+        track = {'title': 'Next from client', 'artist': 'Artist', 'duration': 90,
+                 'uri': 'http://example.test/next'}
+        body = (
+            '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<s:Body><u:SetNextAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">'
+            '<InstanceID>0</InstanceID>'
+            f'<NextURI>{escape(track["uri"])}</NextURI>'
+            f'<NextURIMetaData>{escape(build_didl_metadata(track))}</NextURIMetaData>'
+            '</u:SetNextAVTransportURI></s:Body></s:Envelope>'
+        )
+        response = self._post(chunked=False, body=body)
+        self.assertIn(b'200 OK', response.split(b'\r\n')[0])
+        self.assertEqual(self.renderer.queue[1]['title'], 'Next from client')
+        self.assertEqual(self.renderer.next_uri, track['uri'])
 
 
 if __name__ == '__main__':

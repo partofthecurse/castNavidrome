@@ -39,6 +39,7 @@ from flask_ask_sdk.skill_adapter import SkillAdapter  # bridges the ask SDK skil
 import castnavidrome.subsonic_api as api  # talks to the Navidrome media server
 from castnavidrome.alexa_remote import AlexaRemoteError, AlexaTextCommandClient, build_control_text, find_devices_by_name
 from castnavidrome.renderer_registry import RendererRegistry
+from castnavidrome.renderer_bridge import RendererBridge
 import castnavidrome.controller as controller
 import castnavidrome.queue_filler as queue_filler
 import castnavidrome.state as state
@@ -79,6 +80,7 @@ logging.basicConfig(
 logging.getLogger('werkzeug').addFilter(HealthCheckLogFilter())
 
 logger = logging.getLogger(__name__)
+renderer_bridge = RendererBridge()
 
 #
 # Get service configuration
@@ -741,7 +743,14 @@ class castNavidromePlaySongByArtist(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
+        renderer_controlled = False
+        try:
+            renderer_controlled = renderer_bridge.bind_start(device_id, song_dets.get('id'))
+        except Exception as error:
+            logger.warning('Could not associate this Alexa device with its renderer: %s', error)
+
         play_queue.clear()
+        play_queue.set_renderer_controlled(renderer_controlled)
         controller.enqueue_songs(connection, play_queue, [song_dets.get('id')])
 
         track_details = play_queue.get_next_track()
@@ -1453,6 +1462,12 @@ class castNavidromeHelpTopic(AbstractRequestHandler):
 #
 
 
+def _is_current_audio_token(handler_input: HandlerInput, play_queue) -> bool:
+    request_object = getattr(handler_input.request_envelope, 'request', None)
+    token = getattr(request_object, 'token', None)
+    return not token or token == play_queue.get_current_track().id
+
+
 class PlaybackStartedHandler(AbstractRequestHandler):
     """AudioPlayer.PlaybackStarted Directive received.
 
@@ -1467,6 +1482,9 @@ class PlaybackStartedHandler(AbstractRequestHandler):
         logger.debug('In PlaybackStartedHandler')
         device_id = state.get_device_id(handler_input)
         play_queue = state.get_play_queue(device_id)
+        if not _is_current_audio_token(handler_input, play_queue):
+            logger.debug('Ignoring a playback-started event for a previous track')
+            return handler_input.response_builder.response
         logger.info('Playback started')
 
         play_queue.set_playback_active(True)
@@ -1482,6 +1500,9 @@ class PlaybackStartedHandler(AbstractRequestHandler):
 
         if pending_skip == 'next':
             if play_queue.get_queue_count() == 0:
+                track_details = controller.get_renderer_next(renderer_bridge, device_id, connection, play_queue)
+                if track_details:
+                    return controller.start_playback('play', None, None, track_details, handler_input)
                 logger.warning('The play queue is empty, the buffered next skip is dropped')
             elif not is_radio_track(play_queue.get_current_track()):
                 logger.info('Executing the buffered next skip')
@@ -1541,6 +1562,9 @@ class PlaybackStoppedHandler(AbstractRequestHandler):
         logger.debug('In PlaybackStoppedHandler')
         device_id = state.get_device_id(handler_input)
         play_queue = state.get_play_queue(device_id)
+        if not _is_current_audio_token(handler_input, play_queue):
+            logger.debug('Ignoring a playback-stopped event for a previous track')
+            return handler_input.response_builder.response
 
         play_queue.set_playback_active(False)
 
@@ -1567,6 +1591,9 @@ class PlaybackNearlyFinishedHandler(AbstractRequestHandler):
         logger.debug('In PlaybackNearlyFinishedHandler')
         device_id = state.get_device_id(handler_input)
         play_queue = state.get_play_queue(device_id)
+        if not _is_current_audio_token(handler_input, play_queue):
+            logger.debug('Ignoring a nearly-finished event for a previous track')
+            return handler_input.response_builder.response
         logger.info('Queuing next track...')
         track_details = play_queue.enqueue_next_track()
 
@@ -1594,6 +1621,12 @@ class PlaybackFinishedHandler(AbstractRequestHandler):
         play_queue = state.get_play_queue(device_id)
 
         current_track = play_queue.get_current_track()
+
+        if not _is_current_audio_token(handler_input, play_queue):
+            token = handler_input.request_envelope.request.token
+            if not str(token).startswith(RADIO_TOKEN_PREFIX):
+                connection.scrobble(token, datetime.now().timestamp())
+            return handler_input.response_builder.response
 
         if is_radio_track(current_track):
             logger.debug('A radio stream ended, it is not scrobbled')
@@ -1691,13 +1724,6 @@ class NextPlaybackHandler(AbstractRequestHandler):
 
             return handler_input.response_builder.response
 
-        if play_queue.get_queue_count() == 0:
-            logger.warning('The play queue is empty, there is no track to skip to')
-            speech = translate(handler_input, 'no_more_tracks_in_queue')
-            handler_input.response_builder.speak(speech)
-
-            return handler_input.response_builder.response
-
         # When a track is still starting (the previous play directive has not
         # reported PlaybackStarted yet), buffer the skip instead of sending
         # another REPLACE_ALL directive.  The buffered skip is consumed once
@@ -1707,6 +1733,16 @@ class NextPlaybackHandler(AbstractRequestHandler):
         if play_queue.is_transitioning():
             logger.info('A track is still starting, buffering the next skip')
             play_queue.request_skip('next')
+            return handler_input.response_builder.response
+
+        if play_queue.get_queue_count() == 0:
+            track_details = controller.get_renderer_next(renderer_bridge, device_id, connection, play_queue)
+            if track_details:
+                return controller.start_playback('play', None, None, track_details, handler_input)
+            logger.warning('The play queue is empty, there is no track to skip to')
+            speech = translate(handler_input, 'no_more_tracks_in_queue')
+            handler_input.response_builder.speak(speech)
+
             return handler_input.response_builder.response
 
         track_details = play_queue.get_next_track()

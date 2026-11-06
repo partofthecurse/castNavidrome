@@ -278,3 +278,31 @@ def enqueue_songs(api: SubsonicConnection, queue: MediaQueue, song_id_list: list
 
         # Add track object to queue
         queue.add_track(new_track)
+
+
+def get_renderer_next(bridge, device_id: str, api: SubsonicConnection, queue: MediaQueue):
+    current = queue.get_current_track()
+    if not current.id or not queue.is_renderer_controlled():
+        return None
+    try:
+        candidate = bridge.request_next(device_id, current.id, 'peek')
+        next_id = candidate.get('id')
+        if not isinstance(next_id, str) or not next_id:
+            return None
+        temporary = MediaQueue()
+        enqueue_songs(api, temporary, [next_id])
+        track = temporary.get_next_track()
+        if track.id != next_id or not track.uri:
+            return None
+        result = bridge.request_next(device_id, current.id, 'commit', next_id)
+        if not result.get('ok'):
+            return None
+    except Exception as error:
+        logger.warning('Could not get the next track from the renderer: %s', error)
+        return None
+    queue.clear()
+    queue.set_renderer_controlled(True)
+    queue.add_track(track)
+    track = queue.get_next_track()
+    queue.set_transitioning(True)
+    return track

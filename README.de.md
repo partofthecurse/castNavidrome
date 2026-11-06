@@ -373,6 +373,8 @@ Wenn `NAVI_AMAZON_USER`, `NAVI_AMAZON_PASS` und `NAVI_AMAZON_TOTP_SECRET` gesetz
 
 Mit diesem Login fragt der Renderer während der Wiedergabe etwa alle fünf Sekunden den von Amazon gemeldeten Echo-Status ab und meldet erkannte Pausen und Stopps per UPnP an den Client. Bei fehlenden oder verzögerten Statusdaten bleibt der letzte bekannte Zustand bestehen; der Browser-Cookie-Fallback allein aktiviert diese Überwachung nicht.
 
+Gibt ein UPnP-Client den nächsten Titel über `SetNextAVTransportURI` vor, verwendet der Renderer diesen anstelle der aus dem Album abgeleiteten Reihenfolge. Bei einem Renderer-Titelstart werden Echo und Renderer anhand des zeitnah gestarteten Titels automatisch zugeordnet. Ein am Echo gesprochenes „Weiter“ kann dann den nächsten Renderer-Titel abspielen. Ist die Zuordnung mehrdeutig oder abgelaufen, wird nicht geraten. Beide Container benötigen dafür dasselbe beschreibbare `state`-Volume.
+
 Der bisherige Browser-Capture-Proxy bleibt als Fallback verfügbar, falls Amazon einen zusätzlichen Challenge-Schritt verlangt oder die automatische Anmeldung nicht möglich ist.
 
 #### Browser-Fallback konfigurieren

@@ -107,12 +107,9 @@ class RendererCommandError(RuntimeError):
 class MediaRenderer:
     """A UPnP media renderer that forwards the playback to an Alexa device.
 
-    The renderer owns the play queue of the DLNA clients.  A DLNA client
-    only tells the renderer which track it wants to play, the queue of the
-    client is not known to it.  The renderer therefore builds the queue
-    from the collection of the media server and plays the single tracks
-    of that queue, so that the skip commands of the clients skip in the
-    queue of the collection and not in the queue of the skill.
+    The renderer builds an initial queue from the collection when a client
+    selects a track. A client-supplied next URI takes precedence over that
+    fallback queue; the renderer preserves already played entries as history.
     """
 
     def __init__(self, udid: str, friendly_name: str, device: dict = None, command_handler=None,
@@ -122,6 +119,7 @@ class MediaRenderer:
         self.device = device or {}
         self.command_handler = command_handler
         self.event_sink = None
+        self._queue_lock = threading.RLock()
 
         # The number of seconds of client inactivity after which the
         # renderer stops playback instead of advancing to the next track.
@@ -148,6 +146,7 @@ class MediaRenderer:
         self._echo_pause_confirmed = False
         self._paused_elapsed = 0
         self._advance_timer = None
+        self._advance_generation = 0
         self._volume_read_at = 0.0
         self._last_volume_change_at = 0.0
         self._volume_change_pending = None
@@ -298,23 +297,46 @@ class MediaRenderer:
     #
 
     def set_av_transport_uri(self, current_uri: str, current_metadata: str = '') -> dict:
-        self.current_uri = current_uri or ''
-        self.current_metadata = current_metadata or ''
-        self.track = normalise_track(parse_didl_metadata(current_metadata))
+        with self._queue_lock:
+            self.current_uri = current_uri or ''
+            self.current_metadata = current_metadata or ''
+            self.track = normalise_track(parse_didl_metadata(current_metadata))
 
-        if not self.track['uri']:
-            self.track['uri'] = self.current_uri
+            if not self.track['uri']:
+                self.track['uri'] = self.current_uri
 
-        self._cancel_advance()
-        self.queue = []
-        self.queue_index = -1
-        self._load_queue()
+            self._cancel_advance()
+            self.queue = []
+            self.queue_index = -1
+            self.next_uri = ''
+            self.next_metadata = ''
+            self._load_queue()
 
         return {}
 
     def set_next_av_transport_uri(self, next_uri: str, next_metadata: str = '') -> dict:
-        self.next_uri = next_uri or ''
-        self.next_metadata = next_metadata or ''
+        with self._queue_lock:
+            self.next_uri = next_uri or ''
+            self.next_metadata = next_metadata or ''
+            if self.queue_index < 0:
+                self.queue = [dict(self.track)]
+                self.queue_index = 0
+            else:
+                self.queue = self.queue[:self.queue_index + 1]
+
+            if self.next_uri:
+                parsed = normalise_track(parse_didl_metadata(self.next_metadata))
+                resolved = self._query('resolve_next_track', uri=self.next_uri, track=parsed) or {}
+                for key, value in resolved.items():
+                    if value:
+                        parsed[key] = value
+                parsed['uri'] = self.next_uri
+                self.queue.append(normalise_track(parsed))
+                logger.info('The client supplied the next track for renderer %s.', self.friendly_name)
+            else:
+                logger.info('The client cleared the next track for renderer %s.', self.friendly_name)
+
+        self.notify_state_change()
         return {}
 
     def _load_queue(self) -> None:
@@ -416,7 +438,62 @@ class MediaRenderer:
     def _has_previous(self) -> bool:
         return self.queue_index > 0
 
-    def _play_queue_entry(self, index: int, quiet: bool = False) -> bool:
+    def _reserve_queue_entry(self, index: int, expected_track=None, expected_next=None,
+                             expected_generation=None, require_playing=False):
+        with self._queue_lock:
+            if self.transport_state == TRANSPORT_TRANSITIONING:
+                return None
+            if require_playing and self.transport_state != TRANSPORT_PLAYING:
+                return None
+            if expected_generation is not None and expected_generation != self._advance_generation:
+                return None
+            if expected_track is not None and self.track.get('id') != expected_track:
+                return None
+            if index < 0 or index >= len(self.queue):
+                return None
+            entry = dict(self.queue[index])
+            if expected_next is not None and entry.get('id') != expected_next:
+                return None
+            self._cancel_advance()
+            self.queue_index = index
+            self.track = dict(entry)
+            self.current_uri = entry.get('uri') or self.current_uri
+            self.current_metadata = build_didl_metadata(entry)
+            self._update_next_entry()
+            self.transport_state = TRANSPORT_TRANSITIONING
+            self._echo_playback_confirmed = False
+            return entry
+
+    def peek_voice_next(self, current_id: str) -> dict:
+        with self._queue_lock:
+            if (self.transport_state != TRANSPORT_PLAYING or not current_id
+                    or self.track.get('id') != current_id or not self._has_next()):
+                return {}
+            entry = dict(self.queue[self.queue_index + 1])
+            return entry if entry.get('id') else {}
+
+    def commit_voice_next(self, current_id: str, next_id: str) -> bool:
+        if not current_id or not next_id:
+            return False
+        with self._queue_lock:
+            entry = self._reserve_queue_entry(self.queue_index + 1, expected_track=current_id,
+                                              expected_next=next_id, require_playing=True)
+            if not entry:
+                return False
+            self.transport_status = 'OK'
+            self.started_at = time.time()
+            self.transport_state = TRANSPORT_PLAYING
+            self._schedule_advance()
+            clients = self.client_names.copy() or {self.client_name or UNKNOWN_CLIENT}
+        threading.Thread(target=self._publish_voice_track, args=(entry, clients), daemon=True).start()
+        return True
+
+    def _publish_voice_track(self, track: dict, clients: set) -> None:
+        self.notify_state_change()
+        for client in clients:
+            self._query('report_now_playing', track=track, client=client)
+
+    def _play_queue_entry(self, index: int, quiet: bool = False, expected_generation=None) -> bool:
         """Play a track of the queue of the renderer.
 
         The quiet tracks are played without an answer of the skill, so that
@@ -430,19 +507,10 @@ class MediaRenderer:
         :rtype: bool
         """
 
-        if index < 0 or index >= len(self.queue):
+        entry = self._reserve_queue_entry(index, expected_generation=expected_generation)
+        if not entry:
             return False
-
-        entry = self.queue[index]
-
-        self.queue_index = index
-        self.track = dict(entry)
-        self.current_uri = entry.get('uri') or self.current_uri
-        self.current_metadata = build_didl_metadata(entry)
-        self._update_next_entry()
-
-        self._set_transport_state(TRANSPORT_TRANSITIONING)
-        self._echo_playback_confirmed = False
+        self.notify_state_change()
 
         try:
             self._command('play_track', track=entry, quiet=quiet)
@@ -485,24 +553,28 @@ class MediaRenderer:
             return
 
         remaining = max(0, duration - self.elapsed_seconds())
-        timer = threading.Timer(remaining, self._advance)
+        timer = threading.Timer(remaining, self._advance, args=(self._advance_generation,))
         timer.daemon = True
         self._advance_timer = timer
         timer.start()
 
     def _cancel_advance(self) -> None:
+        self._advance_generation += 1
         if self._advance_timer:
             self._advance_timer.cancel()
             self._advance_timer = None
 
-    def _advance(self) -> None:
+    def _advance(self, expected_generation=None) -> None:
         """Continue with the next track of the queue.
 
         The track is played quietly, the user did not ask for it, so the
         skill does not answer with the title and the artist.
         """
 
-        self._advance_timer = None
+        with self._queue_lock:
+            if expected_generation is not None and expected_generation != self._advance_generation:
+                return
+            self._advance_timer = None
 
         # Only castnavidrome tracks are advanced automatically.  A track from
         # another client (e.g. Spotify) has no collection id and must not be
@@ -533,7 +605,8 @@ class MediaRenderer:
             return
 
         try:
-            self._play_queue_entry(self.queue_index + 1, quiet=True)
+            self._play_queue_entry(self.queue_index + 1, quiet=True,
+                                   expected_generation=expected_generation)
         except SoapError as error:
             logger.warning('Could not play the next track of the renderer %s: %s',
                            self.friendly_name, error)

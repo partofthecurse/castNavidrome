@@ -1,4 +1,5 @@
 import unittest
+import threading
 from unittest import mock
 
 from castnavidrome.upnp.didl import build_didl_metadata, parse_didl_metadata
@@ -335,6 +336,105 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(len(self.renderer.queue), 2)
         self.assertEqual(self.renderer.queue_index, 0)
         self.assertEqual(self.renderer.queue[1]['title'], 'Another Song')
+
+    def test_client_next_track_takes_precedence_over_album_queue(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        client_track = {'title': 'Playlist Song', 'artist': 'Other Artist', 'duration': 90,
+                        'uri': 'http://navidrome/rest/stream?id=99'}
+        self.renderer.set_next_av_transport_uri(client_track['uri'], build_didl_metadata(client_track))
+        self.renderer.play()
+        self.renderer._cancel_advance()
+        self.renderer._advance()
+        self.assertEqual(self.renderer.track['title'], 'Playlist Song')
+        self.assertEqual(self.renderer.current_uri, client_track['uri'])
+        self.assertEqual(self.controller.calls[-1][1]['title'], 'Playlist Song')
+        self.renderer._cancel_advance()
+
+    def test_clearing_client_next_track_discards_album_fallback(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.set_next_av_transport_uri('', '')
+        self.assertFalse(self.renderer._has_next())
+        self.assertEqual(self.renderer.next_uri, '')
+
+    def test_client_can_replace_next_track_and_advance_again(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        first = dict(QUEUE[1], title='First choice')
+        replacement = dict(QUEUE[1], title='Replacement')
+        self.renderer.set_next_av_transport_uri(first['uri'], build_didl_metadata(first))
+        self.renderer.set_next_av_transport_uri(replacement['uri'], build_didl_metadata(replacement))
+        self.renderer.next()
+        self.assertEqual(self.renderer.track['title'], 'Replacement')
+        self.assertEqual(self.renderer.next_uri, '')
+        self.renderer.set_next_av_transport_uri(first['uri'], build_didl_metadata(first))
+        self.renderer.next()
+        self.assertEqual(self.renderer.track['title'], 'First choice')
+        self.assertEqual(self.renderer.queue_index, 2)
+        self.renderer._cancel_advance()
+
+    def test_new_uri_clears_previous_client_next_when_track_cannot_be_resolved(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.set_next_av_transport_uri('http://example.test/next', '')
+        self.controller.queue = []
+        self.renderer.set_av_transport_uri('spotify:track:abc', '')
+        self.assertEqual(self.renderer.next_uri, '')
+        self.assertEqual(self.renderer.next_metadata, '')
+
+    def test_expired_timer_does_not_skip_after_manual_next(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        old_generation = self.renderer._advance_generation
+        self.renderer.next()
+        self.renderer._advance(old_generation)
+        self.assertEqual(self.renderer.track['title'], 'Another Song')
+        self.assertEqual(len([call for call in self.controller.calls if call[0] == 'play_track']), 1)
+        self.renderer._cancel_advance()
+
+    def test_voice_next_updates_renderer_without_sending_a_second_command(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        old_generation = self.renderer._advance_generation
+        self.assertEqual(self.renderer.peek_voice_next('42')['id'], '43')
+        self.assertTrue(self.renderer.commit_voice_next('42', '43'))
+        self.renderer._advance(old_generation)
+        self.assertEqual(self.renderer.track['id'], '43')
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertEqual([call for call in self.controller.calls if call[0] == 'play_track'], [])
+        self.assertFalse(self.renderer.commit_voice_next('42', '43'))
+        self.renderer._cancel_advance()
+
+    def test_voice_next_rejects_mismatched_current_or_next_track(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.assertEqual(self.renderer.peek_voice_next('other'), {})
+        self.assertFalse(self.renderer.commit_voice_next('42', 'other'))
+        self.assertEqual(self.renderer.track['id'], '42')
+        self.renderer._cancel_advance()
+
+    def test_voice_next_and_timer_cannot_both_advance(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        generation = self.renderer._advance_generation
+        barrier = threading.Barrier(2)
+        results = []
+
+        def voice():
+            barrier.wait()
+            results.append(self.renderer.commit_voice_next('42', '43'))
+
+        def timer():
+            barrier.wait()
+            self.renderer._advance(generation)
+
+        workers = [threading.Thread(target=voice), threading.Thread(target=timer)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertEqual(self.renderer.track['id'], '43')
+        self.assertEqual(self.renderer.queue_index, 1)
+        self.assertEqual(len([call for call in self.controller.calls if call[0] == 'play_track']),
+                         0 if results[0] else 1)
+        self.renderer._cancel_advance()
 
     def test_the_next_track_is_taken_from_the_queue(self):
         self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
