@@ -46,7 +46,7 @@ import castnavidrome.decades as decades
 from castnavidrome.search import SearchResolver
 from castnavidrome.track import Track
 from castnavidrome.playlist_names import build_playlist_names
-from castnavidrome.utils import get_resolved_slot_value, sanitise_speech_output
+from castnavidrome.utils import HealthCheckLogFilter, get_resolved_slot_value, sanitise_speech_output
 from castnavidrome.cookie_capture_proxy import AlexaCookieCaptureProxy
 from castnavidrome.amazon_login import resolve_cookie_file
 from castnavidrome.localization import (
@@ -76,6 +76,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
 )
+logging.getLogger('werkzeug').addFilter(HealthCheckLogFilter())
 
 logger = logging.getLogger(__name__)
 
@@ -2174,6 +2175,7 @@ sa.register(app=app, route='/')
 # healthcheck.  The Alexa skill dispatch is registered for POST only, so a
 # plain GET on "/" would otherwise answer with 405.
 @app.route('/', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
     return 'castNavidrome is running', 200
 

@@ -10,6 +10,19 @@ from .localization import Translator
 
 logger = logging.getLogger(__name__)
 
+
+class HealthCheckLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (
+            record.levelno == logging.INFO
+            and isinstance(record.msg, str)
+            and record.msg.startswith('127.0.0.1 - - [')
+            and isinstance(record.args, tuple)
+            and len(record.args) == 3
+            and record.args[0] == 'GET /health HTTP/1.1'
+            and str(record.args[1]) == '200'
+        )
+
 try:
     from ask_sdk_model.slu.entityresolution.status_code import StatusCode
     SUCCESS_MATCH = StatusCode.ER_SUCCESS_MATCH

@@ -1,6 +1,25 @@
+import logging
 import unittest
 
-from castnavidrome.utils import SUCCESS_MATCH, get_resolved_slot_value
+from castnavidrome.utils import HealthCheckLogFilter, SUCCESS_MATCH, get_resolved_slot_value
+
+
+class HealthCheckLogFilterTests(unittest.TestCase):
+    def setUp(self):
+        self.log_filter = HealthCheckLogFilter()
+
+    def record(self, address='127.0.0.1', path='/health', status='200', method='GET'):
+        return logging.LogRecord('werkzeug', logging.INFO, '', 0,
+                                 f'{address} - - [date] "%s" %s %s\n',
+                                 (f'{method} {path} HTTP/1.1', status, '-'), None)
+
+    def test_suppresses_successful_local_health_checks(self):
+        self.assertFalse(self.log_filter.filter(self.record()))
+
+    def test_preserves_other_requests_and_errors(self):
+        for record in (self.record(path='/'), self.record(status='503'),
+                       self.record(method='POST'), self.record(address='192.0.2.1')):
+            self.assertTrue(self.log_filter.filter(record))
 
 
 class FakeStatus:
