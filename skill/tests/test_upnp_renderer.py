@@ -216,10 +216,13 @@ class MediaRendererTests(unittest.TestCase):
     def test_the_volume_is_limited_to_the_upnp_range(self):
         self.renderer.set_volume('150')
         self.assertEqual(self.renderer.volume, 100)
-        self.renderer._last_volume_change_at = 0  # reset throttling for test
-
         self.renderer.set_volume('-10')
         self.assertEqual(self.renderer.volume, 0)
+
+    def test_fractional_alexa_step_is_forwarded_as_absolute_volume(self):
+        self.renderer.set_volume('15')
+        self.assertIn(('set_volume', 15), self.controller.calls)
+        self.assertEqual(self.renderer.volume, 15)
 
     def test_the_alexa_volume_is_calculated_from_the_upnp_volume(self):
         self.assertEqual(self.renderer.alexa_volume(50), 5)
@@ -231,8 +234,8 @@ class MediaRendererTests(unittest.TestCase):
 
         result = self.renderer.get_volume()
 
-        self.assertEqual(result, {'CurrentVolume': '70'})
-        self.assertEqual(self.renderer.volume, 70)
+        self.assertEqual(result, {'CurrentVolume': '7'})
+        self.assertEqual(self.renderer.volume, 7)
         self.assertIn(('get_volume',), self.controller.calls)
 
     def test_the_transport_info_reports_the_current_state(self):

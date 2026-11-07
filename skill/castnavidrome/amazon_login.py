@@ -515,6 +515,43 @@ class AioAmazonSession:
             raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
         self._run_shared(self._async_send_text_command, device, text, locale)
 
+    def set_device_volume(self, device: dict, volume: int) -> None:
+        if not self.is_configured:
+            raise AmazonCredentialsMissing('AioAmazon credentials are not configured.')
+        self._run_shared(self._async_set_device_volume, device, volume)
+
+    def get_device_volume(self, device: dict) -> int | None:
+        if not self.is_configured:
+            return None
+        return self._run_shared(self._async_get_device_volume, device)
+
+    async def _async_set_device_volume(self, device: dict, volume: int) -> None:
+        async with self._get_operation_lock():
+            try:
+                api, devices = await self._shared_connection()
+                target = devices.get(device.get('serialNumber') or '')
+                if target is None:
+                    raise AmazonLoginError('The Alexa device of this renderer is unknown.')
+                await api.set_device_volume(target, max(0, min(100, int(volume))))
+            except Exception:
+                await self._disconnect_shared()
+                raise
+
+    async def _async_get_device_volume(self, device: dict) -> int | None:
+        async with self._get_operation_lock():
+            try:
+                api, devices = await self._shared_connection()
+                serial = device.get('serialNumber') or ''
+                if serial not in devices:
+                    return None
+                await api._media_handler.sync_device_volumes()
+                volumes = await api._media_handler.device_volumes
+                volume = volumes.get(serial)
+                return volume.volume if volume is not None else None
+            except Exception:
+                await self._disconnect_shared()
+                raise
+
     async def _async_send_text_command(self, device: dict, text: str, locale: str) -> None:
         async with self._get_operation_lock():
             try:

@@ -362,6 +362,7 @@ The service reads its configuration from environment variables.
 | `NAVI_ALEXA_RENDERER_DISABLE_REFRESH` | Disable periodic device-list refresh; cookie-change watching remains active | `true` |
 | `NAVI_ALEXA_RENDERER_DISABLE_BYEBYE` | Disable SSDP `ssdp:byebye` announcements on stop or when removing renderers | `false` |
 | `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Seconds of client inactivity after which playback stops (`0` = disabled) | `0` |
+| `NAVI_ALEXA_RENDERER_DEFAULT_VOLUME` | Alexa volume set once when the renderer starts, from `0` to `10` | `1` |
 | `NAVI_ALEXA_RENDERER_DISABLE_ANNOUNCE` | Disable periodic SSDP announcements (`true`/`false`) | `false` |
 | `NAVI_ALEXA_RENDERER_ANNOUNCE_INTERVAL` | Seconds between periodic SSDP announcements (`<= 0` disables the loop) | `720` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_COUNT` | Number of times `ssdp:alive`/`ssdp:byebye` are repeated (`0` = no repeats) | `3` |

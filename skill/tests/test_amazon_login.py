@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import os
 import tempfile
 import threading
@@ -402,6 +403,15 @@ class AioAmazonSessionTests(unittest.TestCase):
             AioAmazonSession._device_record(device, 'customer-1')['deviceOwnerCustomerId'],
             'customer-1',
         )
+
+    def test_absolute_volume_uses_the_shared_amazon_session(self):
+        target = object()
+        api = SimpleNamespace(set_device_volume=AsyncMock())
+        self.session._shared_connection = AsyncMock(return_value=(api, {'serial-1': target}))
+
+        asyncio.run(self.session._async_set_device_volume({'serialNumber': 'serial-1'}, 10))
+
+        api.set_device_volume.assert_awaited_once_with(target, 10)
 
 
 if __name__ == '__main__':

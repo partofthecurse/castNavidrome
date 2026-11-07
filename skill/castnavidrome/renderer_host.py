@@ -391,18 +391,27 @@ class AlexaRendererController:
         self._send(renderer, build_control_text('volume_down', self.skill_name, locale=self.locale))
 
     def set_volume(self, renderer: MediaRenderer, volume: int = 0, adjust: str = 'absolute', use_current: bool = True) -> None:
-        """Set the volume by direction only - ignore absolute values."""
+        """Set the Alexa volume from an UPnP value in the range 0 to 100."""
         if adjust == 'increase':
             self.volume_up(renderer)
         elif adjust == 'decrease':
             self.volume_down(renderer)
+        elif self.aioamazon_session and self.aioamazon_session.is_configured:
+            try:
+                self.aioamazon_session.set_device_volume(renderer.device, max(0, min(100, int(volume))))
+            except Exception as error:
+                raise RendererCommandError(str(error)) from error
         else:
-            # Try to determine direction if called with absolute values
-            self.volume_up(renderer)
+            raise RendererCommandError('Absolute Alexa volume requires aioamazondevices credentials.')
 
     def get_volume(self, renderer: MediaRenderer) -> int:
-        """Read the current volume of the Alexa device - no longer supported."""
-        return None
+        """Read the Alexa volume, returned on the UPnP 0-to-100 scale."""
+        if not self.aioamazon_session or not self.aioamazon_session.is_configured:
+            return None
+        try:
+            return self.aioamazon_session.get_device_volume(renderer.device)
+        except Exception as error:
+            raise RendererCommandError(str(error)) from error
 
     def _lookup_track(self, renderer: MediaRenderer) -> tuple:
         """Look the track of the current URI up in the Navidrome collection."""
@@ -518,6 +527,12 @@ class RendererHost:
         # client stops it explicitly.
         self.client_timeout = float(self.env.get('NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT',
                                                  str(DEFAULT_CLIENT_TIMEOUT)))
+        try:
+            self.default_volume = int(self.env.get('NAVI_ALEXA_RENDERER_DEFAULT_VOLUME', '1'))
+        except (TypeError, ValueError):
+            raise ValueError('NAVI_ALEXA_RENDERER_DEFAULT_VOLUME must be an integer from 0 to 10.') from None
+        if not 0 <= self.default_volume <= 10:
+            raise ValueError('NAVI_ALEXA_RENDERER_DEFAULT_VOLUME must be from 0 to 10.')
 
     #
     # Setup
@@ -572,6 +587,7 @@ class RendererHost:
         # keine Phase, in der SSDP bereits antwortet, die Renderer-Liste aber
         # noch leer ist (Clients würden sonst leere M-SEARCH-Antworten erhalten).
         self.refresh()
+        self._apply_default_volume()
 
         try:
             self.bridge_server.start()
@@ -649,6 +665,22 @@ class RendererHost:
         if request.get('action') == 'commit' and isinstance(next_id, str):
             return {'ok': renderer.commit_voice_next(current_id, next_id)}
         return {}
+
+    def _apply_default_volume(self) -> None:
+        upnp_volume = self.default_volume * 10
+        for renderer in self.server.renderers():
+            renderer.volume = upnp_volume
+            if not self.aioamazon_session.is_configured:
+                logger.warning('Cannot set the default volume for %s without aioamazondevices credentials.',
+                               renderer.friendly_name)
+                continue
+            try:
+                self.controller.set_volume(renderer, volume=upnp_volume)
+                logger.info('Set the default Alexa volume to %s/10 for %s.',
+                            self.default_volume, renderer.friendly_name)
+            except RendererCommandError as error:
+                logger.warning('Could not set the default Alexa volume for %s: %s',
+                               renderer.friendly_name, error)
 
     def _watch_echo_states(self) -> None:
         while not self._stop_event.is_set():

@@ -346,6 +346,7 @@ Der Dienst liest seine Konfiguration aus Umgebungsvariablen.
 | `NAVI_ALEXA_RENDERER_NOTIFY_COUNT` | Wie oft `ssdp:alive`/`ssdp:byebye` wiederholt wird (`0` = keine Wiederholungen) | `3` |
 | `NAVI_ALEXA_RENDERER_NOTIFY_DELAY` | Sekunden zwischen SSDP-Notify-Wiederholungen (`0` = keine Verzögerung) | `0.4` |
 | `NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT` | Sekunden Inaktivität des Clients, nach denen die Wiedergabe stoppt (`0` = deaktiviert) | `0` |
+| `NAVI_ALEXA_RENDERER_DEFAULT_VOLUME` | Alexa-Lautstärke beim Rendererstart, von `0` bis `10` | `1` |
 | `NAVI_ALEXA_RENDERER_STATE_FILE` | Registry, die Alexa-Geräte auf Renderer-UUIDs abbildet | `/var/lib/castnavidrome/renderer-devices.json` |
 | `NAVI_ALEXA_RENDERER_NAME_PREFIX` | Präfix für Renderer-Namen | — |
 | `NAVI_ALEXA_RENDERER_DEVICE_TYPES` | Erlaubte Gerätetypen (kommagetrennt) | `ECHO,FIRE_TV` |

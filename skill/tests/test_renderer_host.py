@@ -71,6 +71,7 @@ class RendererHostTests(unittest.TestCase):
             'NAVI_ALEXA_SKILL_NAME': 'castnavidrome',
             'NAVI_ALEXA_LOCALE': 'de-DE',
             'NAVI_ALEXA_DOMAIN': 'amazon.com',
+            'NAVI_ALEXA_RENDERER_DEFAULT_VOLUME': '1',
         }
 
         self.host = RendererHost(env=self.env)
@@ -101,6 +102,23 @@ class RendererHostTests(unittest.TestCase):
         host = RendererHost(env=self.env)
 
         self.assertEqual(host.friendly_name(make_device('Echo Dot', 'serial-1')), 'Echo Dot')
+
+    def test_default_volume_is_set_once_using_alexa_scale(self):
+        self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
+        self.host.aioamazon_session = MagicMock(is_configured=True)
+        self.host.controller.aioamazon_session = self.host.aioamazon_session
+        self.host.controller.set_volume = MagicMock()
+
+        self.host._apply_default_volume()
+
+        renderer = self.host.server.renderers()[0]
+        self.assertEqual(renderer.volume, 10)
+        self.host.controller.set_volume.assert_called_once_with(renderer, volume=10)
+
+    def test_default_volume_must_be_in_alexa_range(self):
+        self.env['NAVI_ALEXA_RENDERER_DEFAULT_VOLUME'] = '11'
+        with self.assertRaisesRegex(ValueError, 'from 0 to 10'):
+            RendererHost(env=self.env)
 
     def test_a_device_that_is_gone_removes_its_renderer(self):
         self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
@@ -500,12 +518,17 @@ class ControllerVolumeTests(unittest.TestCase):
         self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', make_device(), self.controller)
 
     def test_absolute_volume(self):
-        controller, client, renderer = make_controller_with_volume()
-        client.volumes['serial-1'] = 5
+        controller, _, renderer = make_controller_with_volume()
+        controller.aioamazon_session = MagicMock(is_configured=True)
 
-        controller.set_volume(renderer, volume=8, adjust='absolute')
+        controller.set_volume(renderer, volume=80, adjust='absolute')
 
-        self.assertEqual(client.sent, ['lauter'])
+        controller.aioamazon_session.set_device_volume.assert_called_once_with(renderer.device, 80)
+
+    def test_absolute_volume_requires_aioamazon_credentials(self):
+        controller, _, renderer = make_controller_with_volume()
+        with self.assertRaises(RendererCommandError):
+            controller.set_volume(renderer, volume=80, adjust='absolute')
 
     def test_increase_volume_with_current(self):
         controller, client, renderer = make_controller_with_volume()
