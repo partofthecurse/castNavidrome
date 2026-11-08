@@ -103,6 +103,22 @@ class AlexaTextCommandClientTests(unittest.TestCase):
             'frage zero mukke, spiele das Lied Mötley Crüe - Dr. Feelgood & Co. von Mötley Crüe',
         )
 
+    def test_hash_track_numbers_are_spoken_as_localized_words(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Untitled #4', 'Sigur Rós', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Untitled Nummer 4 von Sigur Rós',
+        )
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Untitled #4', 'Sigur Rós', locale='en-US'),
+            'ask zero mukke to play the song Untitled number 4 by Sigur Rós',
+        )
+
+    def test_numeric_title_hyphens_are_spoken_as_separators(self):
+        self.assertEqual(
+            build_play_track_text('zero mukke', 'Amb 23-10', 'Moby', locale='de-DE'),
+            'frage zero mukke, spiele das Lied Amb 23 10 von Moby',
+        )
+
     def test_the_play_track_text_preserves_a_long_title(self):
         long_title = 'A' * 150
         self.assertEqual(

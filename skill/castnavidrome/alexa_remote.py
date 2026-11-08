@@ -109,6 +109,24 @@ def _strip_parentheses(text: str) -> str:
     return ' '.join(cleaned.split())
 
 
+def _normalise_spoken_title(title: str, locale: str) -> str:
+    """Replace title punctuation that Alexa's text-command NLU often misreads."""
+
+    language = normalize_locale(locale).split('-', 1)[0]
+    number_words = {
+        'de': 'Nummer',
+        'en': 'number',
+        'es': 'número',
+        'fr': 'numéro',
+        'it': 'numero',
+        'pt': 'número',
+    }
+    number_word = number_words.get(language, 'number')
+    title = re.sub(r'#\s*(?=\d)', f'{number_word} ', title)
+    title = re.sub(r'(?<=\d)[\-\u2010-\u2015](?=\d)', ' ', title)
+    return ' '.join(title.split())
+
+
 class AlexaTextCommandClient:
     def __init__(self, cookie_file: str = None, domain: str = 'amazon.com', timeout: int = 10,
                  opener=None) -> None:
@@ -478,6 +496,7 @@ def build_play_track_text(skill_name: str, title: str, artist: str, locale: str 
     # longer.  Strip them before building the command so the artist stays
     # at the end and the device can actually match the track.
     title = _strip_parentheses(title)
+    title = _normalise_spoken_title(title, locale)
 
     text = alexa_command(key, locale, skill_name=skill_name, title=title, artist=artist)
 
