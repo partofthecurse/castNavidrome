@@ -1468,6 +1468,24 @@ def _is_current_audio_token(handler_input: HandlerInput, play_queue) -> bool:
     return not token or token == play_queue.get_current_track().id
 
 
+def _report_renderer_state(device_id: str, play_queue, state: str, offset_ms=None, grace: bool = False) -> None:
+    """Tell the media renderer of the device how the Echo plays the skill.
+
+    Only the tracks that a media renderer started are reported, so that the
+    DLNA clients see when the Echo leaves the skill.
+    """
+
+    if not play_queue.is_renderer_controlled():
+        return
+    current_track = play_queue.get_current_track()
+    if not current_track.id:
+        return
+    try:
+        renderer_bridge.report_state(device_id, current_track.id, state, offset_ms, grace=grace)
+    except Exception as error:
+        logger.warning('Could not report the playback state to the renderer: %s', error)
+
+
 class PlaybackStartedHandler(AbstractRequestHandler):
     """AudioPlayer.PlaybackStarted Directive received.
 
@@ -1489,6 +1507,9 @@ class PlaybackStartedHandler(AbstractRequestHandler):
 
         play_queue.set_playback_active(True)
         play_queue.set_transitioning(False)
+        request_object = getattr(handler_input.request_envelope, 'request', None)
+        _report_renderer_state(device_id, play_queue, 'PLAYING',
+                               getattr(request_object, 'offset_in_milliseconds', None))
 
         # Consume a skip that was buffered while the track was starting.
         # The user pressed Next or Previous while the previous track was
@@ -1566,10 +1587,18 @@ class PlaybackStoppedHandler(AbstractRequestHandler):
             logger.debug('Ignoring a playback-stopped event for a previous track')
             return handler_input.response_builder.response
 
+        was_active = play_queue.is_playback_active()
         play_queue.set_playback_active(False)
 
         # store the current offset for later resumption
-        play_queue.set_current_track_offset(handler_input.request_envelope.request.offset_in_milliseconds)
+        offset = handler_input.request_envelope.request.offset_in_milliseconds
+        play_queue.set_current_track_offset(offset)
+
+        # The Echo left the skill (another skill or music service took over,
+        # or the playback was stopped outside of the skill).  A stop or pause
+        # of the skill itself has already been reported.
+        if was_active:
+            _report_renderer_state(device_id, play_queue, 'STOPPED', offset, grace=True)
 
         current_track = play_queue.get_current_track()
         logger.debug(f'Stored track offset of: {current_track.offset} ms for {current_track.title}')
@@ -1661,6 +1690,8 @@ class PausePlaybackHandler(AbstractRequestHandler):
         play_queue = state.get_play_queue(device_id)
         play_queue.set_playback_active(False)
         play_queue.sync()
+        renderer_state = 'PAUSED' if is_intent_name('AMAZON.PauseIntent')(handler_input) else 'STOPPED'
+        _report_renderer_state(device_id, play_queue, renderer_state)
 
         return controller.stop(handler_input)
 

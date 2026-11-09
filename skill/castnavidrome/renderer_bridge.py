@@ -71,8 +71,30 @@ class RendererBridge:
         renderer = self.renderer_for(device)
         if not renderer or not current or action not in ('peek', 'commit'):
             return {}
-        request = json.dumps({'renderer': renderer, 'current': current, 'action': action,
-                              'next': next_id}).encode('utf-8') + b'\n'
+        return self._request({'renderer': renderer, 'current': current, 'action': action, 'next': next_id})
+
+    def report_state(self, device: str, current: str, state: str, offset_ms=None, grace: bool = False) -> dict:
+        """Tell the renderer how the Echo plays the track of the skill.
+
+        :param str state: 'STOPPED' or 'PAUSED' when the Echo left the skill,
+                          'PLAYING' when the skill plays the track again
+        :param bool grace: True when the renderer should wait a moment before
+                           it follows a stop, the playback may continue
+        """
+        renderer = self.renderer_for(device)
+        if not renderer or not current or state not in ('STOPPED', 'PAUSED', 'PLAYING'):
+            return {}
+        payload = {'renderer': renderer, 'current': current, 'action': 'state', 'state': state,
+                   'grace': bool(grace)}
+        try:
+            if offset_ms is not None:
+                payload['offset'] = max(0, int(offset_ms))
+        except (TypeError, ValueError):
+            pass
+        return self._request(payload)
+
+    def _request(self, payload: dict) -> dict:
+        request = json.dumps(payload).encode('utf-8') + b'\n'
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(2)
             connection.connect(self.path + '.sock')

@@ -43,6 +43,11 @@ DEFAULT_SSDP_SEARCH_COUNT = 1
 DEFAULT_SSDP_SEARCH_DELAY = 0.15
 DEFAULT_CLIENT_TIMEOUT = 0.0
 
+# How long the renderer waits before it follows a PlaybackStopped event of
+# the skill.  A voice interaction with the skill can stop the playback for a
+# moment, the renderer only stops when the playback did not continue.
+ECHO_STOP_GRACE_SECONDS = 5.0
+
 # The prefix of the renderer names is optional.  Without it the renderers
 # are named after the Alexa device, which is what most DLNA clients show
 # in their player list.
@@ -661,6 +666,14 @@ class RendererHost:
         if request.get('action') == 'peek':
             track = renderer.peek_voice_next(current_id)
             return {'id': track['id']} if track else {}
+        if request.get('action') == 'state':
+            offset = request.get('offset')
+            position = offset / 1000 if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0 else None
+            state = request.get('state')
+            if state == 'PLAYING':
+                return {'ok': renderer.echo_playback_resumed(current_id, position)}
+            grace = ECHO_STOP_GRACE_SECONDS if request.get('grace') is True else 0
+            return {'ok': renderer.echo_playback_ended(current_id, state, position, grace=grace)}
         next_id = request.get('next')
         if request.get('action') == 'commit' and isinstance(next_id, str):
             return {'ok': renderer.commit_voice_next(current_id, next_id)}

@@ -5,6 +5,13 @@ All notable changes to castNavidrome are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Stop or pause the UPnP renderer when the Echo leaves the skill (another skill or music service takes over,
+  or the playback is stopped or paused by voice), so that DLNA clients no longer show the track as playing.
+  The renderer shows the playback again when the skill resumes the same track.
+
 ## [0.2.1] - 2026-11-06
 
 ### Added

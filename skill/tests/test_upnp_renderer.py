@@ -1,5 +1,6 @@
 import unittest
 import threading
+import time
 from unittest import mock
 
 from castnavidrome.upnp.didl import build_didl_metadata, parse_didl_metadata
@@ -8,6 +9,7 @@ from castnavidrome.upnp.renderer import (
     RendererCommandError,
     client_name_from_user_agent,
     format_duration,
+    normalise_track,
 )
 from castnavidrome.upnp.soap import build_soap_response, parse_soap_request
 
@@ -502,6 +504,73 @@ class QueueTests(unittest.TestCase):
         reported = [call for call in self.controller.calls if call[0] == 'report_now_playing']
         self.assertEqual(len(reported), 1)
         self.assertEqual(reported[0][1]['id'], '42')
+
+
+class EchoLeftSkillTests(unittest.TestCase):
+    def setUp(self):
+        self.controller = FakeController()
+        self.renderer = MediaRenderer('uuid:1234', 'Echo Dot', {'name': 'Echo Dot'}, self.controller)
+        self.renderer.track = normalise_track({'id': 'song-1', 'title': 'Song', 'duration': 200})
+        self.renderer.transport_state = 'PLAYING'
+        self.renderer.started_at = time.time() - 30
+        self.renderer._schedule_advance()
+        self.events = []
+        self.renderer.notify_state_change = lambda: self.events.append(self.renderer.transport_state)
+        self.addCleanup(self.renderer._cancel_advance)
+
+    def test_a_stop_without_grace_stops_the_renderer(self):
+        self.assertTrue(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42))
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertIsNone(self.renderer._advance_timer)
+        self.assertEqual(self.events, ['STOPPED'])
+        self.assertEqual(self.controller.calls, [])
+
+    def test_a_pause_pauses_the_renderer(self):
+        self.assertTrue(self.renderer.echo_playback_ended('song-1', 'PAUSED', 42))
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertEqual(self.renderer._paused_elapsed, 42)
+
+    def test_a_report_for_another_track_is_ignored(self):
+        self.assertFalse(self.renderer.echo_playback_ended('song-0', 'STOPPED', 42))
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_a_stopped_renderer_ignores_the_report(self):
+        self.renderer.transport_state = 'STOPPED'
+        self.assertFalse(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42))
+        self.assertEqual(self.events, [])
+
+    def test_a_stop_with_grace_is_applied_later(self):
+        self.assertTrue(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42, grace=0.05))
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer._echo_stop_timer.join(1)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+
+    def test_a_stop_with_grace_is_dropped_when_the_playback_continues(self):
+        self.renderer.echo_playback_ended('song-1', 'STOPPED', 42, grace=0.05)
+        timer = self.renderer._echo_stop_timer
+        self.assertFalse(self.renderer.echo_playback_resumed('song-1', 42))
+        timer.join(1)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_a_stop_with_grace_is_dropped_when_the_track_changes(self):
+        self.renderer.echo_playback_ended('song-1', 'STOPPED', 42, grace=0.05)
+        timer = self.renderer._echo_stop_timer
+        self.renderer.track = normalise_track({'id': 'song-2', 'title': 'Next', 'duration': 200})
+        self.renderer._schedule_advance()
+        timer.join(1)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_the_renderer_plays_again_when_the_skill_resumes_the_track(self):
+        self.renderer.echo_playback_ended('song-1', 'STOPPED', 42)
+        self.assertTrue(self.renderer.echo_playback_resumed('song-1', 42))
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertAlmostEqual(self.renderer.elapsed_seconds(), 42, delta=1)
+        self.assertIsNotNone(self.renderer._advance_timer)
+
+    def test_a_resume_after_a_client_stop_is_ignored(self):
+        self.renderer.stop()
+        self.assertFalse(self.renderer.echo_playback_resumed('song-1', 42))
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
 
 
 class EventTests(unittest.TestCase):

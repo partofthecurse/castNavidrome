@@ -337,6 +337,79 @@ class NextIntentBridgeTests(unittest.TestCase):
         self.assertEqual(self.api.scrobble.call_args.args[0], 'track-1')
         self.assertEqual(self.queue.get_current_track().id, 'track-2')
 
+    def test_playback_stopped_reports_that_the_echo_left_the_skill(self):
+        self.queue.set_playback_active(True)
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=15000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'STOPPED', 15000, grace=True)
+
+    def test_playback_stopped_after_a_pause_of_the_skill_is_not_reported_again(self):
+        self.queue.set_playback_active(False)
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=15000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.bridge.report_state.assert_not_called()
+
+    def test_playback_stopped_of_a_skill_track_is_not_reported(self):
+        self.queue.set_renderer_controlled(False)
+        self.queue.set_playback_active(True)
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=15000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.bridge.report_state.assert_not_called()
+
+    def test_playback_started_reports_the_playback_to_the_renderer(self):
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=3000)
+        self.app.PlaybackStartedHandler().handle(self.input)
+        self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'PLAYING', 3000, grace=False)
+
+    def test_a_failing_report_does_not_break_the_handler(self):
+        self.queue.set_playback_active(True)
+        self.bridge.report_state.side_effect = OSError('no renderer')
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=15000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.assertFalse(self.queue.is_playback_active())
+
+    def test_stop_intent_stops_the_renderer_immediately(self):
+        with mock.patch.object(self.app, 'is_intent_name',
+                               side_effect=lambda name: (lambda _: name == 'AMAZON.StopIntent')), \
+                mock.patch.object(self.app.controller, 'stop', return_value=None):
+            self.app.PausePlaybackHandler().handle(self.input)
+        self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'STOPPED', None, grace=False)
+
+    def test_pause_intent_pauses_the_renderer(self):
+        with mock.patch.object(self.app, 'is_intent_name',
+                               side_effect=lambda name: (lambda _: name == 'AMAZON.PauseIntent')), \
+                mock.patch.object(self.app.controller, 'stop', return_value=None):
+            self.app.PausePlaybackHandler().handle(self.input)
+        self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'PAUSED', None, grace=False)
+
+    def test_echo_leaving_the_skill_stops_the_real_renderer(self):
+        from castnavidrome.renderer_host import RendererHost
+        from castnavidrome.upnp.renderer import MediaRenderer
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'bridge.sqlite3')
+            host = RendererHost(env={'NAVI_RENDERER_BRIDGE_PATH': path,
+                                     'NAVI_ALEXA_RENDERER_ADVERTISE_HOST': '127.0.0.1'})
+            renderer = MediaRenderer('renderer-1', 'Echo', command_handler=host.controller)
+            renderer.track = {'id': 'track-1', 'title': 'First', 'duration': 0}
+            renderer.transport_state = 'PLAYING'
+            renderer.started_at = 1.0
+            host.server.add_renderer(renderer)
+            bridge = host.controller.bridge
+            bridge.register_start(renderer.udid, 'track-1')
+            self.assertTrue(bridge.bind_start('device-1', 'track-1'))
+            host.bridge_server.start()
+            try:
+                with mock.patch.object(self.app, 'is_intent_name',
+                                       side_effect=lambda name: (lambda _: name == 'AMAZON.StopIntent')), \
+                        mock.patch.object(self.app.controller, 'stop', return_value=None), \
+                        mock.patch.object(self.app, 'renderer_bridge', bridge):
+                    self.app.PausePlaybackHandler().handle(self.input)
+                self.assertEqual(renderer.transport_state, 'STOPPED')
+            finally:
+                host.bridge_server.stop()
+                renderer._cancel_advance()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -142,6 +142,9 @@ class MediaRenderer:
         self._paused_elapsed = 0
         self._advance_timer = None
         self._advance_generation = 0
+        self._echo_stop_timer = None
+        self._echo_stop_generation = 0
+        self._echo_left_track = ''
         self._volume_read_at = 0.0
         self._client_activity_at = time.monotonic()
 
@@ -638,6 +641,122 @@ class MediaRenderer:
         self._cancel_advance()
         self._echo_pause_confirmed = state == 'PAUSED'
         self._set_transport_state(TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED)
+
+    def echo_playback_ended(self, track_id: str, state: str, position=None, grace: float = 0) -> bool:
+        """Follow the Echo when it stops or pauses the playback of the skill.
+
+        The skill reports this when the Echo leaves the skill, for example
+        when another skill or music service takes over or the user stops the
+        playback by voice.  No command is sent back to the Echo, the renderer
+        only updates its state so that the clients see the change.
+
+        A report with a grace period is applied only when the playback has
+        not continued in the meantime, so that a short voice interaction
+        with the skill (for example a skip) does not stop the renderer.
+
+        :param str track_id: The ID of the track that the skill was playing
+        :param str state: 'STOPPED' or 'PAUSED'
+        :param position: The playback position in seconds, if known
+        :param float grace: Seconds to wait before the state is applied
+        :return: True when the report was accepted
+        :rtype: bool
+        """
+
+        state = (state or '').upper()
+        if state not in ('STOPPED', 'PAUSED') or not track_id:
+            return False
+
+        with self._queue_lock:
+            if not self._echo_report_applies(track_id, state):
+                return False
+            self._echo_stop_generation += 1
+            if self._echo_stop_timer:
+                self._echo_stop_timer.cancel()
+                self._echo_stop_timer = None
+            if grace and grace > 0:
+                timer = threading.Timer(grace, self._apply_echo_end,
+                                        args=(track_id, state, position, self._echo_stop_generation,
+                                              self._advance_generation, self.started_at))
+                timer.daemon = True
+                self._echo_stop_timer = timer
+                timer.start()
+                return True
+
+        return self._apply_echo_end(track_id, state, position)
+
+    def _echo_report_applies(self, track_id: str, state: str) -> bool:
+        if self.track.get('id') != track_id:
+            return False
+        if self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+            return False
+        if state == 'PAUSED' and self.transport_state == TRANSPORT_PAUSED:
+            self._echo_pause_confirmed = True
+            return False
+        return True
+
+    def _apply_echo_end(self, track_id: str, state: str, position=None, stop_generation=None,
+                        advance_generation=None, started_at=None) -> bool:
+        with self._queue_lock:
+            if stop_generation is not None:
+                if stop_generation != self._echo_stop_generation:
+                    return False
+                self._echo_stop_timer = None
+                if advance_generation != self._advance_generation or started_at != self.started_at:
+                    return False
+            if not self._echo_report_applies(track_id, state):
+                return False
+
+            if position is None:
+                position = self.elapsed_seconds() if self.transport_state == TRANSPORT_PLAYING else self._paused_elapsed
+            self._paused_elapsed = max(0, int(position))
+            self._cancel_advance()
+            self._echo_pause_confirmed = state == 'PAUSED'
+            self._echo_left_track = track_id
+            new_state = TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED
+
+        logger.info('The Echo of the renderer %s left the skill, the playback is now %s.',
+                    self.friendly_name, new_state)
+        self._set_transport_state(new_state)
+        return True
+
+    def echo_playback_resumed(self, track_id: str, position=None) -> bool:
+        """Follow the Echo when the skill plays a track again.
+
+        A pending stop report is dropped.  When the renderer was stopped
+        because the Echo had left the skill and the skill now plays the
+        same track again, the renderer shows the playback again.
+
+        :param str track_id: The ID of the track that the skill plays
+        :param position: The playback position in seconds, if known
+        :return: True when the state of the renderer was changed
+        :rtype: bool
+        """
+
+        if not track_id:
+            return False
+
+        with self._queue_lock:
+            if self.track.get('id') != track_id:
+                return False
+            self._echo_stop_generation += 1
+            if self._echo_stop_timer:
+                self._echo_stop_timer.cancel()
+                self._echo_stop_timer = None
+            if (self._echo_left_track != track_id
+                    or self.transport_state not in (TRANSPORT_STOPPED, TRANSPORT_PAUSED)):
+                return False
+            if position is None:
+                position = self._paused_elapsed
+            self._echo_left_track = ''
+            self._echo_playback_confirmed = True
+            self._echo_pause_confirmed = False
+            self.transport_status = 'OK'
+            self.started_at = time.time() - max(0, int(position))
+
+        logger.info('The Echo of the renderer %s plays the skill again.', self.friendly_name)
+        self._set_transport_state(TRANSPORT_PLAYING)
+        self._schedule_advance()
+        return True
 
     #
     # AVTransport actions
