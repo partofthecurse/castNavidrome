@@ -330,6 +330,31 @@ class NextIntentBridgeTests(unittest.TestCase):
         self.app.PlaybackStartedHandler().handle(self.input)
         self.assertTrue(self.queue.is_transitioning())
 
+    def test_stopped_event_is_forwarded_to_the_renderer(self):
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=15000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.bridge.notify_playback.assert_called_once_with('device-1', 'stopped', 'track-1', 15000,
+                                                            controlled=True)
+
+    def test_old_stopped_event_is_still_forwarded_to_the_renderer(self):
+        self.queue.set_current_track(Track(id='track-2', title='Next'))
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=5000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.assertEqual(self.bridge.notify_playback.call_args.args[2], 'track-1')
+
+    def test_started_event_of_a_skill_queue_releases_the_renderer(self):
+        self.queue.set_renderer_controlled(False)
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=0)
+        self.app.PlaybackStartedHandler().handle(self.input)
+        self.bridge.notify_playback.assert_called_once_with('device-1', 'started', 'track-1', 0,
+                                                            controlled=False)
+
+    def test_an_unreachable_renderer_does_not_break_the_skill(self):
+        self.bridge.notify_playback.side_effect = FileNotFoundError('no socket')
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=1000)
+        self.app.PlaybackStoppedHandler().handle(self.input)
+        self.assertFalse(self.queue.is_playback_active())
+
     def test_old_finished_event_scrobbles_the_old_track_without_changing_queue(self):
         self.queue.set_current_track(Track(id='track-2', title='Next'))
         self.input.request_envelope.request = SimpleNamespace(token='track-1')

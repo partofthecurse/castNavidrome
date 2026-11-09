@@ -12,6 +12,7 @@ from contextlib import closing
 
 DEFAULT_BRIDGE_PATH = '/var/lib/castnavidrome/renderer-bridge.sqlite3'
 PENDING_SECONDS = 30
+PLAYBACK_EVENTS = ('started', 'stopped')
 
 
 class RendererBridge:
@@ -71,8 +72,31 @@ class RendererBridge:
         renderer = self.renderer_for(device)
         if not renderer or not current or action not in ('peek', 'commit'):
             return {}
-        request = json.dumps({'renderer': renderer, 'current': current, 'action': action,
-                              'next': next_id}).encode('utf-8') + b'\n'
+        return self._request({'renderer': renderer, 'current': current, 'action': action,
+                              'next': next_id})
+
+    def notify_playback(self, device: str, event: str, token: str, offset_ms: int = 0,
+                        controlled: bool = True) -> dict:
+        """Tell the renderer of a device what the skill learned about the playback.
+
+        The skill is the only component that Alexa informs when the playback
+        stops or when the skill is left, for example after "Alexa, stop" or
+        when another audio source takes over the Echo.  The renderer forwards
+        that change to its DLNA clients.
+        """
+        renderer = self.renderer_for(device)
+        if not renderer or event not in PLAYBACK_EVENTS:
+            return {}
+        try:
+            offset = max(0, int(offset_ms or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        return self._request({'renderer': renderer, 'action': 'event', 'event': event,
+                              'current': str(token or ''), 'offset': offset,
+                              'controlled': bool(controlled)})
+
+    def _request(self, payload: dict) -> dict:
+        request = json.dumps(payload).encode('utf-8') + b'\n'
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(2)
             connection.connect(self.path + '.sock')

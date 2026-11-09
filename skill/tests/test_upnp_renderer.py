@@ -504,6 +504,70 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(reported[0][1]['id'], '42')
 
 
+    def test_a_stop_on_the_echo_pauses_the_renderer_for_its_clients(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        events = []
+        self.renderer.event_sink = lambda *event: events.append(event)
+        self.assertTrue(self.renderer.voice_playback_event('stopped', '42', offset_ms=30500))
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertEqual(self.renderer._paused_elapsed, 30)
+        self.assertIsNone(self.renderer._advance_timer)
+        self.assertTrue(events)
+        self.renderer._advance()
+        self.assertEqual(self.renderer.queue_index, 0)
+
+    def test_a_resume_on_the_echo_plays_the_renderer_again(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.renderer.voice_playback_event('stopped', '42', offset_ms=30000)
+        with mock.patch('castnavidrome.upnp.renderer.threading.Timer') as timer:
+            self.assertTrue(self.renderer.voice_playback_event('started', '42', offset_ms=30000))
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertEqual(timer.call_args.args[0], 171)
+
+    def test_a_stop_of_another_track_is_ignored(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.assertFalse(self.renderer.voice_playback_event('stopped', '41', offset_ms=1000))
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer._cancel_advance()
+
+    def test_a_stop_while_the_renderer_starts_a_track_is_ignored(self):
+        self.renderer.transport_state = 'TRANSITIONING'
+        self.renderer.track = dict(QUEUE[0])
+        self.assertFalse(self.renderer.voice_playback_event('stopped', '42'))
+        self.assertEqual(self.renderer.transport_state, 'TRANSITIONING')
+
+    def test_another_skill_queue_stops_the_renderer(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        self.assertTrue(self.renderer.voice_playback_event('started', 'other', controlled=False))
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertIsNone(self.renderer._advance_timer)
+        self.assertEqual(self.controller.calls[-1][0], 'report_now_playing')
+
+    def test_foreign_media_on_the_echo_stops_the_renderer(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertIsNone(self.renderer._advance_timer)
+
+    def test_foreign_media_before_the_echo_confirmed_the_track_is_ignored(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        for _ in range(3):
+            self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer._cancel_advance()
+
+
 class EventTests(unittest.TestCase):
     def setUp(self):
         self.controller = FakeController(QUEUE)

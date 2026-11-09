@@ -152,6 +152,25 @@ class RendererHostTests(unittest.TestCase):
         self.assertEqual(bridge.request_next('skill-device-1', '42', 'commit', '43'), {'ok': False})
         self.assertEqual(bridge.request_next('other-device', '42', 'peek'), {})
 
+    def test_voice_bridge_forwards_a_stop_on_the_echo(self):
+        self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
+        renderer = self.host.server.renderers()[0]
+        renderer.track = {'id': '42', 'title': 'Current', 'duration': 0}
+        renderer.transport_state = 'PLAYING'
+        renderer.started_at = time.time()
+        bridge = self.host.controller.bridge
+        bridge.register_start(renderer.udid, '42')
+        bridge.bind_start('skill-device-1', '42')
+        self.host.bridge_server.start()
+        self.addCleanup(self.host.bridge_server.stop)
+        self.assertEqual(bridge.notify_playback('skill-device-1', 'stopped', '42', 12000), {'ok': True})
+        self.assertEqual(renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertEqual(bridge.notify_playback('skill-device-1', 'started', 'x', controlled=False),
+                         {'ok': True})
+        self.assertEqual(renderer.transport_state, 'STOPPED')
+        self.assertEqual(bridge.notify_playback('other-device', 'stopped', '42'), {})
+        self.assertEqual(bridge.notify_playback('skill-device-1', 'bogus', '42'), {})
+
     def test_the_registry_is_written_during_the_sync(self):
         self.host.sync_renderers([make_device('Echo Dot', 'serial-1')])
 

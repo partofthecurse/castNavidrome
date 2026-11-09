@@ -1468,6 +1468,22 @@ def _is_current_audio_token(handler_input: HandlerInput, play_queue) -> bool:
     return not token or token == play_queue.get_current_track().id
 
 
+def _notify_renderer(handler_input: HandlerInput, device_id: str, event: str, controlled: bool = True) -> None:
+    """Forward a playback change to the media renderer of the device.
+
+    The DLNA client of a renderer must notice when the Echo stops playing or
+    when the skill is left, otherwise it keeps showing a playing track and the
+    renderer starts the next track of its queue on its own.
+    """
+    request_object = getattr(handler_input.request_envelope, 'request', None)
+    token = getattr(request_object, 'token', None) or ''
+    offset = getattr(request_object, 'offset_in_milliseconds', 0) or 0
+    try:
+        renderer_bridge.notify_playback(device_id, event, token, offset, controlled=controlled)
+    except Exception as error:
+        logger.debug('Could not forward the playback state to the renderer: %s', error)
+
+
 class PlaybackStartedHandler(AbstractRequestHandler):
     """AudioPlayer.PlaybackStarted Directive received.
 
@@ -1486,6 +1502,8 @@ class PlaybackStartedHandler(AbstractRequestHandler):
             logger.debug('Ignoring a playback-started event for a previous track')
             return handler_input.response_builder.response
         logger.info('Playback started')
+        _notify_renderer(handler_input, device_id, 'started',
+                         controlled=play_queue.is_renderer_controlled())
 
         play_queue.set_playback_active(True)
         play_queue.set_transitioning(False)
@@ -1562,6 +1580,10 @@ class PlaybackStoppedHandler(AbstractRequestHandler):
         logger.debug('In PlaybackStoppedHandler')
         device_id = state.get_device_id(handler_input)
         play_queue = state.get_play_queue(device_id)
+        # The renderer compares the token with its own track, so a stop of a
+        # track that the skill already replaced is forwarded as well: the
+        # renderer may still believe that its track is playing.
+        _notify_renderer(handler_input, device_id, 'stopped')
         if not _is_current_audio_token(handler_input, play_queue):
             logger.debug('Ignoring a playback-stopped event for a previous track')
             return handler_input.response_builder.response

@@ -140,6 +140,7 @@ class MediaRenderer:
         self._echo_playback_confirmed = False
         self._echo_pause_confirmed = False
         self._paused_elapsed = 0
+        self._foreign_media_polls = 0
         self._advance_timer = None
         self._advance_generation = 0
         self._volume_read_at = 0.0
@@ -610,6 +611,7 @@ class MediaRenderer:
             return
 
         state = (state or '').upper()
+        self._foreign_media_polls = 0
         if state == 'PLAYING':
             if self.transport_state == TRANSPORT_PAUSED and not self._echo_pause_confirmed:
                 return
@@ -638,6 +640,84 @@ class MediaRenderer:
         self._cancel_advance()
         self._echo_pause_confirmed = state == 'PAUSED'
         self._set_transport_state(TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED)
+
+    def voice_playback_event(self, event: str, token: str, offset_ms: int = 0,
+                             controlled: bool = True) -> bool:
+        """Apply a playback change that the skill learned from Alexa.
+
+        Alexa tells only the skill when the playback stops, for example after
+        "Alexa, stop" or when another skill or music service takes over the
+        Echo.  Without this the renderer would keep reporting PLAYING to its
+        clients and would even start the next track of its queue on its own.
+
+        :param str event: ``stopped`` or ``started``
+        :param str token: The track id of the Alexa audio stream
+        :param int offset_ms: The playback position reported by Alexa
+        :param bool controlled: False when the skill plays a queue that the
+            renderer did not start, the renderer has lost the Echo then
+        :return: True when the state of the renderer changed
+        :rtype: bool
+        """
+
+        with self._queue_lock:
+            if self.transport_state == TRANSPORT_TRANSITIONING:
+                return False
+            if event == 'started' and not controlled:
+                if self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+                    return False
+                logger.info('The skill plays another queue on %s, the renderer stops.',
+                            self.friendly_name)
+                self._release()
+                return True
+            if not token or token != self.track.get('id'):
+                return False
+            position = max(0, int(offset_ms or 0)) // 1000
+            if event == 'stopped' and self.transport_state == TRANSPORT_PLAYING:
+                logger.info('The playback of %s was stopped on the Echo.', self.friendly_name)
+                self._paused_elapsed = position
+                self._cancel_advance()
+                self._echo_pause_confirmed = True
+                self._set_transport_state(TRANSPORT_PAUSED)
+                return True
+            if event == 'started' and self.transport_state == TRANSPORT_PAUSED:
+                self.started_at = time.time() - position
+                self._echo_playback_confirmed = True
+                self._echo_pause_confirmed = False
+                self._set_transport_state(TRANSPORT_PLAYING)
+                self._schedule_advance()
+                return True
+            return False
+
+    def sync_foreign_media(self, state: str, started_at=None) -> None:
+        """Stop the renderer when the Echo plays media of another source.
+
+        Two polls in a row are required, the title that Alexa reports can lag
+        behind right after a track change.
+        """
+
+        if started_at != self.started_at or self.transport_state != TRANSPORT_PLAYING:
+            self._foreign_media_polls = 0
+            return
+        if (state or '').upper() != 'PLAYING' or not self._echo_playback_confirmed:
+            return
+        self._foreign_media_polls += 1
+        if self._foreign_media_polls < 2:
+            return
+        logger.info('The Echo of %s plays other media, the renderer stops.', self.friendly_name)
+        with self._queue_lock:
+            if started_at == self.started_at and self.transport_state == TRANSPORT_PLAYING:
+                self._release()
+
+    def _release(self) -> None:
+        """Stop the renderer without sending a command to the Echo."""
+
+        self._foreign_media_polls = 0
+        self._cancel_advance()
+        self.started_at = None
+        self._paused_elapsed = 0
+        self._echo_playback_confirmed = False
+        self._echo_pause_confirmed = False
+        self._set_transport_state(TRANSPORT_STOPPED)
 
     #
     # AVTransport actions

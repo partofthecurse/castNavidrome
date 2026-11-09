@@ -658,6 +658,13 @@ class RendererHost:
         renderer = self.server.get_renderer(renderer_id)
         if renderer is None:
             return {}
+        if request.get('action') == 'event':
+            offset = request.get('offset')
+            offset = offset if isinstance(offset, int) and not isinstance(offset, bool) else 0
+            changed = renderer.voice_playback_event(str(request.get('event') or ''), current_id,
+                                                    offset_ms=offset,
+                                                    controlled=request.get('controlled') is not False)
+            return {'ok': changed}
         if request.get('action') == 'peek':
             track = renderer.peek_voice_next(current_id)
             return {'id': track['id']} if track else {}
@@ -707,6 +714,8 @@ class RendererHost:
                         if state is not None:
                             title = state.now_playing_title
                             if title and title.casefold() != renderer.track.get('title', '').casefold():
+                                # The Echo plays something else: the skill was left.
+                                renderer.sync_foreign_media(state.player_state, started_at)
                                 continue
                             renderer.sync_echo_state(state.player_state, state.media_position,
                                                      state.media_length, started_at,
