@@ -1472,11 +1472,14 @@ def _report_renderer_state(device_id: str, play_queue, state: str, offset_ms=Non
     """Tell the media renderer of the device how the Echo plays the skill.
 
     Only the tracks that a media renderer started are reported, so that the
-    DLNA clients see when the Echo leaves the skill.
+    DLNA clients see when the Echo leaves the skill.  When the skill starts
+    a track of its own, the renderer of the device is released instead.
     """
 
     if not play_queue.is_renderer_controlled():
-        return
+        if state != 'PLAYING':
+            return
+        state = 'RELEASED'
     current_track = play_queue.get_current_track()
     if not current_track.id:
         return

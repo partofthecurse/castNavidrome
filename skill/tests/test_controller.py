@@ -361,6 +361,12 @@ class NextIntentBridgeTests(unittest.TestCase):
         self.app.PlaybackStartedHandler().handle(self.input)
         self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'PLAYING', 3000, grace=False)
 
+    def test_playback_started_of_a_skill_track_releases_the_renderer(self):
+        self.queue.set_renderer_controlled(False)
+        self.input.request_envelope.request = SimpleNamespace(token='track-1', offset_in_milliseconds=0)
+        self.app.PlaybackStartedHandler().handle(self.input)
+        self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'RELEASED', 0, grace=False)
+
     def test_a_failing_report_does_not_break_the_handler(self):
         self.queue.set_playback_active(True)
         self.bridge.report_state.side_effect = OSError('no renderer')

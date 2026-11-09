@@ -573,6 +573,56 @@ class EchoLeftSkillTests(unittest.TestCase):
         self.assertEqual(self.renderer.transport_state, 'STOPPED')
 
 
+    def test_the_skill_playing_its_own_music_releases_the_renderer(self):
+        self.assertTrue(self.renderer.echo_released())
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertIsNone(self.renderer.started_at)
+        self.assertIsNone(self.renderer._advance_timer)
+        self.assertEqual(self.controller.calls, [])
+        self.assertFalse(self.renderer.echo_playback_resumed('song-1', 42))
+
+    def test_a_release_drops_a_pending_stop(self):
+        self.renderer.echo_playback_ended('song-1', 'PAUSED', 42, grace=0.05)
+        timer = self.renderer._echo_stop_timer
+        self.renderer.echo_released()
+        timer.join(1)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+
+    def test_a_stopped_renderer_is_not_released_again(self):
+        self.renderer.transport_state = 'STOPPED'
+        self.assertFalse(self.renderer.echo_released())
+        self.assertEqual(self.events, [])
+
+    def test_foreign_media_releases_the_renderer_after_two_polls(self):
+        self.renderer._echo_playback_confirmed = True
+        started_at = self.renderer.started_at
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.controller.calls, [])
+
+    def test_foreign_media_needs_a_confirmed_playback(self):
+        self.renderer._echo_playback_confirmed = False
+        for _ in range(3):
+            self.renderer.sync_foreign_media('PLAYING', self.renderer.started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_a_matching_status_resets_the_foreign_media_count(self):
+        self.renderer._echo_playback_confirmed = True
+        started_at = self.renderer.started_at
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.renderer.sync_echo_state('PLAYING', 30, 200, started_at, title_matches=True)
+        self.renderer.sync_foreign_media('PLAYING', started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+    def test_foreign_media_of_an_older_track_is_ignored(self):
+        self.renderer._echo_playback_confirmed = True
+        for _ in range(3):
+            self.renderer.sync_foreign_media('PLAYING', 1.0)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+
+
 class EventTests(unittest.TestCase):
     def setUp(self):
         self.controller = FakeController(QUEUE)

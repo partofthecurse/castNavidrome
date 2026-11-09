@@ -559,3 +559,27 @@ class ControllerVolumeTests(unittest.TestCase):
         controller.set_volume(renderer, volume=0, adjust='decrease', use_current=False)
 
         self.assertEqual(client.sent, ['leiser'])
+
+
+class VoiceStateBridgeTests(unittest.TestCase):
+    def test_the_host_forwards_the_echo_states_to_the_renderer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = RendererHost(env={'NAVI_RENDERER_BRIDGE_PATH': str(Path(directory) / 'bridge.sqlite3'),
+                                     'NAVI_ALEXA_RENDERER_ADVERTISE_HOST': '127.0.0.1'})
+            renderer = MediaRenderer('renderer-1', 'Echo', command_handler=host.controller)
+            renderer.track = {'id': 'track-1', 'title': 'First', 'duration': 0}
+            renderer.transport_state = 'PLAYING'
+            renderer.started_at = time.time() - 10
+            host.server.add_renderer(renderer)
+            handle = host._handle_voice_queue
+
+            self.assertEqual(handle({'renderer': 'renderer-1', 'current': 'track-1', 'action': 'state',
+                                     'state': 'PAUSED', 'offset': 10000}), {'ok': True})
+            self.assertEqual(renderer.transport_state, 'PAUSED_PLAYBACK')
+            self.assertEqual(handle({'renderer': 'renderer-1', 'current': 'track-1', 'action': 'state',
+                                     'state': 'RELEASED', 'offset': 0}), {'ok': True})
+            self.assertEqual(renderer.transport_state, 'STOPPED')
+            self.assertEqual(handle({'renderer': 'renderer-2', 'current': 'track-1', 'action': 'state',
+                                     'state': 'STOPPED'}), {})
+            self.assertEqual(handle({'renderer': 'renderer-1', 'current': 'track-1', 'action': 'state',
+                                     'state': 'BOGUS'}), {'ok': False})

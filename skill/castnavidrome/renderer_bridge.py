@@ -78,11 +78,12 @@ class RendererBridge:
 
         :param str state: 'STOPPED' or 'PAUSED' when the Echo left the skill,
                           'PLAYING' when the skill plays the track again
+                          'RELEASED' when the skill plays music of its own
         :param bool grace: True when the renderer should wait a moment before
                            it follows a stop, the playback may continue
         """
         renderer = self.renderer_for(device)
-        if not renderer or not current or state not in ('STOPPED', 'PAUSED', 'PLAYING'):
+        if not renderer or not current or state not in ('STOPPED', 'PAUSED', 'PLAYING', 'RELEASED'):
             return {}
         payload = {'renderer': renderer, 'current': current, 'action': 'state', 'state': state,
                    'grace': bool(grace)}

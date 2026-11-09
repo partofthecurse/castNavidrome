@@ -144,6 +144,7 @@ class MediaRenderer:
         self._advance_generation = 0
         self._echo_stop_timer = None
         self._echo_stop_generation = 0
+        self._foreign_media_polls = 0
         self._echo_left_track = ''
         self._volume_read_at = 0.0
         self._client_activity_at = time.monotonic()
@@ -611,6 +612,7 @@ class MediaRenderer:
                         title_matches=False) -> None:
         if started_at != self.started_at or self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
             return
+        self._foreign_media_polls = 0
 
         state = (state or '').upper()
         if state == 'PLAYING':
@@ -718,6 +720,72 @@ class MediaRenderer:
                     self.friendly_name, new_state)
         self._set_transport_state(new_state)
         return True
+
+    def echo_released(self) -> bool:
+        """Release the renderer because the skill plays music of its own.
+
+        The skill reports this when it starts a track that the renderer did
+        not ask for, so that the renderer does not take the Echo over again
+        when its own track would have ended.
+
+        :return: True when the state of the renderer was changed
+        :rtype: bool
+        """
+
+        with self._queue_lock:
+            if self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+                return False
+            self._release()
+
+        logger.info('The Echo of the renderer %s plays other music of the skill, the renderer is released.',
+                    self.friendly_name)
+        self._set_transport_state(TRANSPORT_STOPPED)
+        return True
+
+    def sync_foreign_media(self, state: str, started_at=None) -> None:
+        """Release the renderer when the Echo plays other media.
+
+        The Echo reports a title that does not belong to the renderer.  The
+        renderer is released only when the Echo had confirmed the track of
+        the renderer before and reports the other title twice in a row, so
+        that a single late or differently spelled status does not stop it.
+
+        :param str state: The player state that the Echo reports
+        :param started_at: The start time of the track when the status was requested
+        """
+
+        with self._queue_lock:
+            if started_at != self.started_at or self.transport_state != TRANSPORT_PLAYING:
+                self._foreign_media_polls = 0
+                return
+            if (state or '').upper() != 'PLAYING' or not self._echo_playback_confirmed:
+                return
+            self._foreign_media_polls += 1
+            if self._foreign_media_polls < 2:
+                return
+            self._release()
+
+        logger.info('The Echo of the renderer %s plays other media, the renderer is released.',
+                    self.friendly_name)
+        self._set_transport_state(TRANSPORT_STOPPED)
+
+    def _release(self) -> None:
+        """Forget the playback of the renderer without a command to the Echo.
+
+        The caller holds the queue lock and sets the transport state.
+        """
+
+        self._foreign_media_polls = 0
+        self._cancel_advance()
+        self._echo_stop_generation += 1
+        if self._echo_stop_timer:
+            self._echo_stop_timer.cancel()
+            self._echo_stop_timer = None
+        self.started_at = None
+        self._paused_elapsed = 0
+        self._echo_playback_confirmed = False
+        self._echo_pause_confirmed = False
+        self._echo_left_track = ''
 
     def echo_playback_resumed(self, track_id: str, position=None) -> bool:
         """Follow the Echo when the skill plays a track again.

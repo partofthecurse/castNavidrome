@@ -672,6 +672,8 @@ class RendererHost:
             state = request.get('state')
             if state == 'PLAYING':
                 return {'ok': renderer.echo_playback_resumed(current_id, position)}
+            if state == 'RELEASED':
+                return {'ok': renderer.echo_released()}
             grace = ECHO_STOP_GRACE_SECONDS if request.get('grace') is True else 0
             return {'ok': renderer.echo_playback_ended(current_id, state, position, grace=grace)}
         next_id = request.get('next')
@@ -720,6 +722,7 @@ class RendererHost:
                         if state is not None:
                             title = state.now_playing_title
                             if title and title.casefold() != renderer.track.get('title', '').casefold():
+                                renderer.sync_foreign_media(state.player_state, started_at)
                                 continue
                             renderer.sync_echo_state(state.player_state, state.media_position,
                                                      state.media_length, started_at,

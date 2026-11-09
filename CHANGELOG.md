@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Stop or pause the UPnP renderer when the Echo leaves the skill (another skill or music service takes over,
   or the playback is stopped or paused by voice), so that DLNA clients no longer show the track as playing.
   The renderer shows the playback again when the skill resumes the same track.
+- Release the UPnP renderer when the skill starts music of its own, or when the Echo reports other media twice
+  in a row, so that the renderer no longer takes the Echo over again at the end of its track.
 
 ## [0.2.1] - 2026-11-06
 
