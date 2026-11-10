@@ -149,6 +149,7 @@ Das ist nach dem ersten Start normal — erfasse die Cookies über `/api/alexa/c
 2. Exportiere das Session-Cookie (z. B. mit der Browser-Erweiterung "Export Cookies" oder über die Entwicklertools).
 3. Speichere die Cookies als `.secrets/alexa.cookies` im Projektordner.
 4. Setze `NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies` in `.env`.
+5. Kommentiere den Mount `.secrets/alexa.cookies` in beiden Services der Compose-Datei ein (er ist standardmäßig auskommentiert).
 
 > **Hinweis:** `.secrets/`, `.env` und die Token-Datei werden nicht ins Git-Repository committet (siehe `.gitignore`).
 

@@ -7,12 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+- The `.secrets/alexa.cookies` mount is now commented out in the compose files, because the cookie file lives in
+  `state/` by default. Uncomment it only for the manual cookie fallback.
+
 ### Fixed
+- Remove a leftover `extra_hosts` entry from `docker-compose.prod.yaml`.
 - Stop or pause the UPnP renderer when the Echo leaves the skill (another skill or music service takes over,
   or the playback is stopped or paused by voice), so that DLNA clients no longer show the track as playing.
   The renderer shows the playback again when the skill resumes the same track.
 - Release the UPnP renderer when the skill starts music of its own, or when the Echo reports other media twice
   in a row, so that the renderer no longer takes the Echo over again at the end of its track.
+
+### Documentation
+- Add a Synology DSM 6 section (missing bind-mount paths, `/dev/net/tun`, relative paths in Portainer).
 
 ## [0.2.1] - 2026-11-06
 

@@ -2,8 +2,6 @@ services:
   castnavidrome:
     container_name: castnavidrome
     image: ghcr.io/partofthecurse/castnavidrome:latest
-    extra_hosts:
-      - "castnavidrome.pulbicurl.net:172.21.0.2"
     environment:
       # ---- Required (no default) ----
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
@@ -34,7 +32,9 @@ services:
       # - 'NAVI_ALEXA_COOKIE_FILE=${NAVI_ALEXA_COOKIE_FILE:-/run/secrets/alexa.cookies}'
       # Amazon Alexa cookie capture (automatic session cookie retrieval)
     volumes:
-      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
+      # Optional: only for the manual cookie fallback. Create the file first
+      # (touch .secrets/alexa.cookies), older Docker versions do not create it.
+      # - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
       - './state:/var/lib/castnavidrome'
     ports:
       - '3456:3456'  # Alexa browser-login proxy
@@ -106,7 +106,9 @@ services:
       # - 'NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT=${NAVI_ALEXA_RENDERER_CLIENT_TIMEOUT:-0}'
       # Amazon Alexa cookie capture (automatic session cookie retrieval)
     volumes:
-      - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
+      # Optional: only for the manual cookie fallback. Create the file first
+      # (touch .secrets/alexa.cookies), older Docker versions do not create it.
+      # - './.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw'
       - './state:/var/lib/castnavidrome'
     restart: unless-stopped
     healthcheck:

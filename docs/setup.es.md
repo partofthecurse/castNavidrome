@@ -151,6 +151,7 @@ Si el inicio de sesión OAuth no funciona (p. ej. por CAPTCHA o pasos de verific
 2. Exporta la cookie de sesión (p. ej. con la extensión "Export Cookies" o las herramientas de desarrollo).
 3. Guarda las cookies como `.secrets/alexa.cookies` en la carpeta del proyecto.
 4. Establece `NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies` en `.env`.
+5. Descomenta el montaje `.secrets/alexa.cookies` en ambos servicios del archivo Compose (está comentado por defecto).
 
 > **Nota:** `.secrets/`, `.env` y el archivo de token no se suben a Git (ver `.gitignore`).
 

@@ -95,7 +95,8 @@ services:
     ports:
       - '127.0.0.1:3456:3456'  # Alexa browser-login proxy
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # optional: manual cookie fallback only (create the file first)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     logging:
       driver: "json-file"
@@ -130,7 +131,8 @@ services:
       - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
       - NAVI_ALEXA_RENDERER_AUTO_RESTART=true
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # optional: manual cookie fallback only (create the file first)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -174,6 +176,26 @@ castNavidrome splits its configuration into **required** and **optional** enviro
 - **Optional** — when the variable is not set, the code uses a sensible default. When it is set (for example via `docker-compose.yaml` or a Docker secret), the set value takes precedence over the default.
 
 The `docker-compose.yaml` below therefore only contains the required variables plus the optional ones that you want to override. Every optional entry carries a `${VAR:-default}` fallback so that the container still receives a value when the variable is missing from `.env`.
+
+### Synology DSM 6 (without Container Manager)
+
+Older Synology models that stop at DSM 6.2 ship an older Docker. Three things differ from a current Docker host:
+
+1. **Bind-mount paths must exist.** Docker on DSM 6 does not create missing host paths and fails with `Bind mount failed: ... does not exists`. Create them in the project folder before the first start:
+   ```bash
+   sudo mkdir -p state ts/state config
+   ```
+   `config/serve.json` must be present as well (it is part of the repository). If you enable the optional `.secrets/alexa.cookies` mount, create the file first with `sudo mkdir -p .secrets && sudo touch .secrets/alexa.cookies`.
+2. **`/dev/net/tun` is missing.** DSM 6 does not load the TUN kernel module, so the Tailscale container fails with `error gathering device information while adding custom device "/dev/net/tun"`. Load it once:
+   ```bash
+   sudo sh -c 'mkdir -p /dev/net; [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200; chmod 0666 /dev/net/tun; lsmod | grep -q "^tun" || insmod /lib/modules/tun.ko'
+   ```
+   To keep it after a reboot, add the same command under **Control Panel → Task Scheduler → Create → Triggered Task → User-defined script** (user `root`, event `Boot-up`). Alternatively, run Tailscale in userspace mode: set `TS_USERSPACE=true` and remove the `devices:` and `cap_add:` blocks of the `tailscale` service. If you already have a public HTTPS URL some other way (for example a reverse proxy), you can drop the `tailscale` service and the `depends_on:` block of `castnavidrome` entirely.
+3. **Portainer resolves relative paths inside its own container** (`/data/compose/<id>/...`), not on the NAS. Replace every `./...` path with an absolute one (for example `/volume1/docker/castnavidrome/state:/var/lib/castnavidrome`) and enter the `.env` values in Portainer's environment variables section, or start the stack from the command line:
+   ```bash
+   cd /volume1/docker/castnavidrome
+   sudo docker-compose -f docker-compose.prod.yaml --env-file .env up -d
+   ```
 
 ### Option 2: Run directly with Python
 
@@ -281,7 +303,8 @@ services:
       - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # optional: manual cookie fallback only (create the file first)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -451,7 +474,7 @@ If you prefer not to use the automatic Amazon login (or it fails because of CAPT
 2. Open the Developer Tools (F12), go to **Application → Cookies** and select your Amazon domain.
 3. Copy the cookies as `name=value` pairs, one per line. Make sure the `csrf` cookie is included.
 4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
-5. For a static manual fallback, the file can be mounted read-only. Use a read-write mount for browser capture and automatic renewal (as in the Compose example).
+5. Uncomment the `.secrets/alexa.cookies` mount in both services of the compose file (it is commented out by default). For a static manual fallback, the file can be mounted read-only; use a read-write mount for browser capture and automatic renewal.
 
 ![Alexa cookie export](https://github.com/user-attachments/assets/bf641182-8e06-404d-9d8d-abb9341dbcf0)
 

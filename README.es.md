@@ -93,7 +93,8 @@ services:
     ports:
       - '127.0.0.1:3456:3456'  # Alexa browser-login proxy
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # opcional: solo para el fallback manual de cookies (crea el archivo antes)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     logging:
       driver: "json-file"
@@ -128,7 +129,8 @@ services:
       - NAVI_AMAZON_TOTP_SECRET=${NAVI_AMAZON_TOTP_SECRET:-}
       - NAVI_ALEXA_RENDERER_AUTO_RESTART=true
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # opcional: solo para el fallback manual de cookies (crea el archivo antes)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 
@@ -163,6 +165,26 @@ services:
 ```
 
 Solo las variables requeridas y las rutas fijas están en el archivo Compose. Todos los demás valores tienen un valor predeterminado razonable en el código y se pueden agregar a `.env` cuando sea necesario (consulte [Configuración](#configuración)). El archivo de cookies (`.secrets/alexa.cookies`) y el directorio de estado (`state/`) son solo locales y se excluyen del control de versiones mediante `.gitignore`.
+
+### Synology DSM 6 (sin Container Manager)
+
+Los modelos Synology más antiguos que se quedan en DSM 6.2 incluyen una versión antigua de Docker. Hay tres diferencias respecto a un host Docker actual:
+
+1. **Las rutas de los bind mounts deben existir.** Docker en DSM 6 no crea las rutas del host que faltan y falla con `Bind mount failed: ... does not exists`. Créalas en la carpeta del proyecto antes del primer inicio:
+   ```bash
+   sudo mkdir -p state ts/state config
+   ```
+   `config/serve.json` también debe existir (forma parte del repositorio). Si activas el montaje opcional `.secrets/alexa.cookies`, crea antes el archivo con `sudo mkdir -p .secrets && sudo touch .secrets/alexa.cookies`.
+2. **Falta `/dev/net/tun`.** DSM 6 no carga el módulo TUN del kernel, y el contenedor de Tailscale falla con `error gathering device information while adding custom device "/dev/net/tun"`. Cárgalo una vez:
+   ```bash
+   sudo sh -c 'mkdir -p /dev/net; [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200; chmod 0666 /dev/net/tun; lsmod | grep -q "^tun" || insmod /lib/modules/tun.ko'
+   ```
+   Para que se mantenga tras un reinicio, añade el mismo comando en **Panel de control → Programador de tareas → Crear → Tarea activada → Script definido por el usuario** (usuario `root`, evento `Arranque`). Como alternativa, ejecuta Tailscale en modo userspace: establece `TS_USERSPACE=true` y elimina los bloques `devices:` y `cap_add:` del servicio `tailscale`. Si ya tienes una URL HTTPS pública por otra vía (por ejemplo un proxy inverso), puedes quitar por completo el servicio `tailscale` y el bloque `depends_on:` de `castnavidrome`.
+3. **Portainer resuelve las rutas relativas dentro de su propio contenedor** (`/data/compose/<id>/...`), no en el NAS. Sustituye cada ruta `./...` por una absoluta (por ejemplo `/volume1/docker/castnavidrome/state:/var/lib/castnavidrome`) e introduce los valores de `.env` en la sección de variables de entorno de Portainer, o inicia el stack desde la línea de comandos:
+   ```bash
+   cd /volume1/docker/castnavidrome
+   sudo docker-compose -f docker-compose.prod.yaml --env-file .env up -d
+   ```
 
 ### Opción 2: Ejecutar directamente con Python
 
@@ -270,7 +292,8 @@ services:
       - NAVI_ALEXA_COOKIE_FILE=/var/lib/castnavidrome/alexa.cookies
       - NAVI_ALEXA_CAPTURE_PASSWORD=${NAVI_ALEXA_CAPTURE_PASSWORD}
     volumes:
-      - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
+      # opcional: solo para el fallback manual de cookies (crea el archivo antes)
+      # - ./.secrets/alexa.cookies:/run/secrets/alexa.cookies:rw
       - ./state:/var/lib/castnavidrome
     restart: unless-stopped
 

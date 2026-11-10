@@ -155,7 +155,7 @@ If the browser capture does not work (e.g. due to a CAPTCHA or an additional ver
 2. Open the Developer Tools (F12), go to **Application → Cookies** and select your Amazon domain.
 3. Copy the cookies as `name=value` pairs, one per line. Make sure the `csrf` cookie is included.
 4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
-5. Mount the file read-only in the container (see the `docker-compose.yml` example).
+5. Uncomment the `.secrets/alexa.cookies` mount in both services of the compose file (it is commented out by default). The file can be mounted read-only for a static fallback.
 
 > **Note:** `.secrets/`, `.env`, and the cookie/token files are not committed to Git (see `.gitignore`).
 
