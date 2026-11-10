@@ -21,6 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Documentation
 - Add a Synology DSM 6 section (missing bind-mount paths, `/dev/net/tun`, relative paths in Portainer).
+- Use the published image `ghcr.io/partofthecurse/castnavidrome:latest` in the README compose examples instead of a
+  local build.
 
 ## [0.2.1] - 2026-11-06
 

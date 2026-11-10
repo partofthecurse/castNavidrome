@@ -107,10 +107,10 @@ NAVI_ALEXA_DOMAIN=amazon.de
 
 ### Schritt 2: Container starten und per Browser einloggen
 
-1. Baue und starte die Container:
+1. Starte die Container:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Öffne die Cookie-Login-Seite im Browser (Basic Auth; der Benutzername ist beliebig, das Passwort ist `NAVI_ALEXA_CAPTURE_PASSWORD`):
@@ -158,10 +158,10 @@ Das ist nach dem ersten Start normal — erfasse die Cookies über `/api/alexa/c
 ## 7. Docker Compose starten
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-Dies baut das Image und startet drei Container:
+Dies lädt das veröffentlichte Image und startet drei Container:
 
 - `castnavidrome` — die Alexa-Skill-Weboberfläche (Flask)
 - `castnavidrome-renderer` (optional) — stellt jedes Alexa-Gerät als UPnP-MediaRenderer bereit (benutzt Host-Netzwerk für SSDP)
@@ -170,13 +170,13 @@ Dies baut das Image und startet drei Container:
 ### Nur den Skill starten (ohne Tailscale)
 
 ```bash
-docker compose up -d --build castnavidrome
+docker compose up -d castnavidrome
 ```
 
 ### Nur den Renderer starten
 
 ```bash
-docker compose up -d --build castnavidrome-renderer
+docker compose up -d castnavidrome-renderer
 ```
 
 ---

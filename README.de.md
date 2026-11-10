@@ -64,7 +64,7 @@ Die Software steht unter der [MIT-Lizenz](LICENSE). Der ursprüngliche Copyright
    `.env` wird **nicht** in die Versionskontrolle übernommen.
 3. Starten Sie alles:
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 Beispiel `docker-compose.yml`:
@@ -73,10 +73,7 @@ Beispiel `docker-compose.yml`:
 services:
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
       - NAVI_URL=${NAVI_URL}
@@ -109,10 +106,7 @@ services:
   # Optional: stellt jedes ausgewählte Alexa-Gerät als eigenen UPnP-MediaRenderer bereit.
   # Benötigt das Host-Netzwerk, damit SSDP (Port 1900/udp) zur Entdeckung funktioniert.
   castnavidrome-renderer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     container_name: castnavidrome-renderer
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
@@ -269,10 +263,7 @@ services:
 
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     network_mode: service:tailscale
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
@@ -319,7 +310,7 @@ Der Invocation-Name ist in allen Locales identisch und wird mit `NAVI_ALEXA_SKIL
 docker build -t castnavidrome:local .
 ```
 
-Multi-Architektur-Images lassen sich mit `docker buildx` erstellen (die Dockerfile zielt auf `alpine:3.19` ab). Das Image wird nicht automatisch veröffentlicht; bauen und pushen Sie es vor einem Release in Ihre eigene Registry.
+Multi-Architektur-Images lassen sich mit `docker buildx` erstellen (die Dockerfile zielt auf `alpine:3.19` ab). Ein fertiges Image wird bei jedem Push auf `main` und für jedes Release-Tag automatisch als `ghcr.io/partofthecurse/castnavidrome:latest` veröffentlicht; die Compose-Beispiele nutzen es. Selbst bauen musst du das Image nur, wenn du den Code ändern willst.
 
 ## Konfiguration
 
@@ -420,7 +411,7 @@ NAVI_ALEXA_DOMAIN=amazon.com
 1. Baue und starte die Container:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Öffne die Cookie-Login-Seite im Browser (Basic Auth mit dem Capture-Passwort):

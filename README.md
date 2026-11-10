@@ -66,7 +66,7 @@ The software is distributed under the [MIT License](LICENSE). The original copyr
    `.env` is **not** committed to version control.
 3. Start everything:
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 Example `docker-compose.yml`:
@@ -75,10 +75,7 @@ Example `docker-compose.yml`:
 services:
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
       - NAVI_URL=${NAVI_URL}
@@ -111,10 +108,7 @@ services:
   # Optional: exposes every selected Alexa device as its own UPnP media renderer.
   # Requires the host network so SSDP (port 1900/udp) works for discovery.
   castnavidrome-renderer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     container_name: castnavidrome-renderer
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
@@ -280,10 +274,7 @@ services:
 
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     network_mode: service:tailscale
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
@@ -330,7 +321,7 @@ The invocation name is the same in every locale and is set with `NAVI_ALEXA_SKIL
 docker build -t castnavidrome:local .
 ```
 
-Multi-architecture images can be built with `docker buildx` when required (the Dockerfile targets `alpine:3.19`). The image is not published automatically; build and push it to your own registry before releasing.
+Multi-architecture images can be built with `docker buildx` when required (the Dockerfile targets `alpine:3.19`). A ready-made image is published automatically to `ghcr.io/partofthecurse/castnavidrome:latest` on every push to `main` and for every release tag; the compose examples use it. Build the image yourself only if you want to change the code.
 
 ## Configuration
 
@@ -436,7 +427,7 @@ NAVI_ALEXA_DOMAIN=amazon.com
 1. Build and start the containers:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Open the cookie login page in your browser (Basic Auth with the capture password):

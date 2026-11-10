@@ -64,7 +64,7 @@ El software se distribuye bajo la [licencia MIT](LICENSE). El aviso de copyright
    `.env` **no** se confirma en el control de versiones.
 3. Inicia todo:
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 Ejemplo `docker-compose.yml`:
@@ -73,10 +73,7 @@ Ejemplo `docker-compose.yml`:
 services:
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
       - NAVI_URL=${NAVI_URL}
@@ -109,10 +106,7 @@ services:
   # Opcional: expone cada dispositivo Alexa seleccionado como su propio MediaRenderer UPnP.
   # Requiere la red de host para que SSDP (puerto 1900/udp) funcione para el descubrimiento.
   castnavidrome-renderer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     container_name: castnavidrome-renderer
     network_mode: host
     command: ["python3", "-m", "castnavidrome.renderer_host"]
@@ -269,10 +263,7 @@ services:
 
   castnavidrome:
     container_name: castnavidrome
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: castnavidrome:local
+    image: ghcr.io/partofthecurse/castnavidrome:latest
     network_mode: service:tailscale
     environment:
       - NAVI_SKILL_ID=${NAVI_SKILL_ID}
@@ -319,7 +310,7 @@ El nombre de invocación es el mismo en todos los idiomas y se establece con `NA
 docker build -t castnavidrome:local .
 ```
 
-Las imágenes de múltiples arquitecturas se pueden construir con `docker buildx` cuando sea necesario (el Dockerfile apunta a `alpine:3.22.1`). La imagen no se publica automáticamente; compílala y súbela a tu propio registro antes de lanzar un release.
+Las imágenes de múltiples arquitecturas se pueden construir con `docker buildx` cuando sea necesario (el Dockerfile apunta a `alpine:3.22.1`). Se publica automáticamente una imagen lista para usar en `ghcr.io/partofthecurse/castnavidrome:latest` con cada push a `main` y con cada etiqueta de release; los ejemplos de Compose la usan. Solo necesitas construir la imagen tú mismo si quieres modificar el código.
 
 ## Configuración
 
@@ -414,7 +405,7 @@ NAVI_ALEXA_DOMAIN=amazon.com
 1. Construye e inicia los contenedores:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Abre la página de login de cookies en tu navegador (Basic Auth; el nombre de usuario puede ser cualquiera, la contraseña es `NAVI_ALEXA_CAPTURE_PASSWORD`):
