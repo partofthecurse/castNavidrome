@@ -2,8 +2,8 @@ services:
   castnavidrome:
     container_name: castnavidrome
     image: ghcr.io/partofthecurse/castnavidrome:latest
-    extra_hosts:
-      - "castnavidrome.pulbicurl.net:172.21.0.2"
+    # extra_hosts:
+    #   - "castnavidrome.publicurl.net:172.21.0.2" #maybe neccessary if accessing the service via public URL from the host
     environment:
       # ---- Required (no default) ----
       - 'NAVI_SKILL_ID=${NAVI_SKILL_ID}'
