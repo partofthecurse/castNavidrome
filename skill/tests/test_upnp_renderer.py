@@ -301,14 +301,29 @@ class QueueTests(unittest.TestCase):
             self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
         self.assertEqual(self.renderer.transport_state, 'PLAYING')
 
-    def test_echo_stop_cancels_advance(self):
+    def test_echo_stop_cancels_advance_and_pauses_the_renderer(self):
         self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
         self.renderer.play()
         started_at = self.renderer.started_at
         self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
         self.renderer.sync_echo_state('STOPPED', 20, 201, started_at)
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        # A stopped renderer would make the client start the next track.
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertEqual(self.renderer.get_position_info()['RelTime'], '0:00:20')
         self.assertIsNone(self.renderer._advance_timer)
+        # The Echo status is ignored until the playback starts again.
+        self.renderer.sync_echo_state('PLAYING', 25, 201, started_at, title_matches=True)
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+
+    def test_echo_stop_close_to_the_end_is_the_end_of_the_track(self):
+        self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
+        self.renderer.play()
+        started_at = self.renderer.started_at
+        self.renderer.sync_echo_state('PLAYING', 10, 201, started_at)
+        self.renderer.sync_echo_state('IDLE', 195, 201, started_at)
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertIsNotNone(self.renderer._advance_timer)
+        self.renderer._cancel_advance()
 
     def test_echo_stop_before_first_playing_update_matches_title(self):
         self.renderer.set_av_transport_uri('http://navidrome/rest/stream?id=42', DIDL)
@@ -518,12 +533,40 @@ class EchoLeftSkillTests(unittest.TestCase):
         self.renderer.notify_state_change = lambda: self.events.append(self.renderer.transport_state)
         self.addCleanup(self.renderer._cancel_advance)
 
-    def test_a_stop_without_grace_stops_the_renderer(self):
+    def test_a_stop_without_grace_pauses_the_renderer(self):
+        # A DLNA client takes a stopped renderer for the end of the track
+        # and starts the next one, so the renderer shows a pause.
         self.assertTrue(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42))
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertEqual(self.renderer._paused_elapsed, 42)
         self.assertIsNone(self.renderer._advance_timer)
-        self.assertEqual(self.events, ['STOPPED'])
+        self.assertEqual(self.events, ['PAUSED_PLAYBACK'])
         self.assertEqual(self.controller.calls, [])
+
+    def test_the_echo_status_is_ignored_after_the_echo_left_the_skill(self):
+        self.renderer._echo_playback_confirmed = True
+        started_at = self.renderer.started_at
+        self.renderer.echo_playback_ended('song-1', 'STOPPED', 42)
+        self.renderer.sync_echo_state('PLAYING', 50, 200, started_at, title_matches=True)
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertIsNone(self.renderer._advance_timer)
+
+    def test_a_play_of_the_client_takes_the_echo_over_again(self):
+        self.renderer.echo_playback_ended('song-1', 'STOPPED', 42)
+        self.renderer.play()
+        self.assertEqual(self.renderer.transport_state, 'PLAYING')
+        self.assertIn('play', [call[0] for call in self.controller.calls])
+        self.assertFalse(self.renderer._echo_detached)
+
+    def test_the_stop_report_of_a_client_stop_does_not_pause_the_renderer(self):
+        reports = []
+
+        def stop(renderer):
+            reports.append(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42))
+        self.controller.stop = stop
+        self.renderer.stop()
+        self.assertEqual(reports, [False])
+        self.assertEqual(self.renderer.transport_state, 'STOPPED')
 
     def test_a_pause_pauses_the_renderer(self):
         self.assertTrue(self.renderer.echo_playback_ended('song-1', 'PAUSED', 42))
@@ -543,7 +586,7 @@ class EchoLeftSkillTests(unittest.TestCase):
         self.assertTrue(self.renderer.echo_playback_ended('song-1', 'STOPPED', 42, grace=0.05))
         self.assertEqual(self.renderer.transport_state, 'PLAYING')
         self.renderer._echo_stop_timer.join(1)
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
 
     def test_a_stop_with_grace_is_dropped_when_the_playback_continues(self):
         self.renderer.echo_playback_ended('song-1', 'STOPPED', 42, grace=0.05)
@@ -575,7 +618,7 @@ class EchoLeftSkillTests(unittest.TestCase):
 
     def test_the_skill_playing_its_own_music_releases_the_renderer(self):
         self.assertTrue(self.renderer.echo_released())
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
         self.assertIsNone(self.renderer.started_at)
         self.assertIsNone(self.renderer._advance_timer)
         self.assertEqual(self.controller.calls, [])
@@ -586,7 +629,8 @@ class EchoLeftSkillTests(unittest.TestCase):
         timer = self.renderer._echo_stop_timer
         self.renderer.echo_released()
         timer.join(1)
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
+        self.assertFalse(self.renderer.echo_released())
 
     def test_a_stopped_renderer_is_not_released_again(self):
         self.renderer.transport_state = 'STOPPED'
@@ -599,7 +643,7 @@ class EchoLeftSkillTests(unittest.TestCase):
         self.renderer.sync_foreign_media('PLAYING', started_at)
         self.assertEqual(self.renderer.transport_state, 'PLAYING')
         self.renderer.sync_foreign_media('PLAYING', started_at)
-        self.assertEqual(self.renderer.transport_state, 'STOPPED')
+        self.assertEqual(self.renderer.transport_state, 'PAUSED_PLAYBACK')
         self.assertEqual(self.controller.calls, [])
 
     def test_foreign_media_needs_a_confirmed_playback(self):

@@ -7,7 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-10
+
 ### Fixed
+- Show the UPnP renderer as paused instead of stopped when the Echo leaves the skill, plays other media or
+  stops the track early. DLNA clients took the stopped state for the end of the track and started the next
+  one, which brought the Echo back into the skill. The renderer ignores the Echo status until a client or the
+  skill plays a track again, and a stop of the client is no longer turned into a pause.
 - Stop or pause the UPnP renderer when the Echo leaves the skill (another skill or music service takes over,
   or the playback is stopped or paused by voice), so that DLNA clients no longer show the track as playing.
   The renderer shows the playback again when the skill resumes the same track.
@@ -80,3 +86,4 @@ This release is **not published** — everything is prepared and awaits explicit
 [0.10.0]: https://github.com/castnavidrome/castnavidrome/releases/tag/0.10.0
 [0.2.0]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.0
 [0.2.1]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.1
+[0.2.2]: https://github.com/partofthecurse/castNavidrome/releases/tag/v0.2.2

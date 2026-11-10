@@ -578,7 +578,8 @@ class VoiceStateBridgeTests(unittest.TestCase):
             self.assertEqual(renderer.transport_state, 'PAUSED_PLAYBACK')
             self.assertEqual(handle({'renderer': 'renderer-1', 'current': 'track-1', 'action': 'state',
                                      'state': 'RELEASED', 'offset': 0}), {'ok': True})
-            self.assertEqual(renderer.transport_state, 'STOPPED')
+            self.assertEqual(renderer.transport_state, 'PAUSED_PLAYBACK')
+            self.assertIsNone(renderer.started_at)
             self.assertEqual(handle({'renderer': 'renderer-2', 'current': 'track-1', 'action': 'state',
                                      'state': 'STOPPED'}), {})
             self.assertEqual(handle({'renderer': 'renderer-1', 'current': 'track-1', 'action': 'state',

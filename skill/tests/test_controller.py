@@ -388,7 +388,7 @@ class NextIntentBridgeTests(unittest.TestCase):
             self.app.PausePlaybackHandler().handle(self.input)
         self.bridge.report_state.assert_called_once_with('device-1', 'track-1', 'PAUSED', None, grace=False)
 
-    def test_echo_leaving_the_skill_stops_the_real_renderer(self):
+    def test_echo_leaving_the_skill_pauses_the_real_renderer(self):
         from castnavidrome.renderer_host import RendererHost
         from castnavidrome.upnp.renderer import MediaRenderer
 
@@ -411,7 +411,7 @@ class NextIntentBridgeTests(unittest.TestCase):
                         mock.patch.object(self.app.controller, 'stop', return_value=None), \
                         mock.patch.object(self.app, 'renderer_bridge', bridge):
                     self.app.PausePlaybackHandler().handle(self.input)
-                self.assertEqual(renderer.transport_state, 'STOPPED')
+                self.assertEqual(renderer.transport_state, 'PAUSED_PLAYBACK')
             finally:
                 host.bridge_server.stop()
                 renderer._cancel_advance()

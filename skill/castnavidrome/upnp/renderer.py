@@ -24,6 +24,10 @@ TRANSPORT_NO_MEDIA = 'NO_MEDIA_PRESENT'
 
 TRANSPORT_ACTIONS = 'Play,Pause,Stop,Seek,X_DLNA_SeekTime'
 
+# A stop or idle state that the Echo reports this close to the end of the
+# track is the natural end of the track, the renderer advances on its own.
+ECHO_END_TOLERANCE_SECONDS = 10
+
 UNKNOWN_CLIENT = 'DLNA client'
 
 TRACK_KEYS = ('id', 'title', 'artist', 'album', 'albumId', 'art', 'duration', 'uri')
@@ -146,6 +150,11 @@ class MediaRenderer:
         self._echo_stop_generation = 0
         self._foreign_media_polls = 0
         self._echo_left_track = ''
+        # True when the Echo has left the playback of the renderer.  The
+        # renderer then shows the playback as paused and ignores the Echo
+        # status until a client or the skill plays a track again.
+        self._echo_detached = False
+        self._client_stop_pending = False
         self._volume_read_at = 0.0
         self._client_activity_at = time.monotonic()
 
@@ -303,6 +312,7 @@ class MediaRenderer:
                 self.track['uri'] = self.current_uri
 
             self._cancel_advance()
+            self._echo_detached = False
             self.queue = []
             self.queue_index = -1
             self.next_uri = ''
@@ -452,6 +462,7 @@ class MediaRenderer:
             if expected_next is not None and entry.get('id') != expected_next:
                 return None
             self._cancel_advance()
+            self._echo_detached = False
             self.queue_index = index
             self.track = dict(entry)
             self.current_uri = entry.get('uri') or self.current_uri
@@ -612,6 +623,8 @@ class MediaRenderer:
                         title_matches=False) -> None:
         if started_at != self.started_at or self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
             return
+        if self._echo_detached:
+            return
         self._foreign_media_polls = 0
 
         state = (state or '').upper()
@@ -638,11 +651,21 @@ class MediaRenderer:
         progress = position if position is not None else elapsed
         if track_duration and progress >= track_duration:
             return
+        if state != 'PAUSED' and track_duration and progress >= track_duration - ECHO_END_TOLERANCE_SECONDS:
+            return
 
         self._paused_elapsed = max(0, int(progress))
         self._cancel_advance()
         self._echo_pause_confirmed = state == 'PAUSED'
-        self._set_transport_state(TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED)
+        if state != 'PAUSED':
+            # The Echo stopped the track before its end.  The renderer
+            # shows a pause instead of a stop, a DLNA client would take a
+            # stop for the end of the track and start the next one.
+            self._echo_detached = True
+            self._echo_left_track = self.track.get('id') or ''
+            logger.info('The Echo of the renderer %s stopped the playback, the renderer is paused.',
+                        self.friendly_name)
+        self._set_transport_state(TRANSPORT_PAUSED)
 
     def echo_playback_ended(self, track_id: str, state: str, position=None, grace: float = 0) -> bool:
         """Follow the Echo when it stops or pauses the playback of the skill.
@@ -651,6 +674,10 @@ class MediaRenderer:
         when another skill or music service takes over or the user stops the
         playback by voice.  No command is sent back to the Echo, the renderer
         only updates its state so that the clients see the change.
+
+        The renderer always shows a pause: a DLNA client takes a stopped
+        renderer for the end of the track and starts the next one, which
+        would take the Echo over again.
 
         A report with a grace period is applied only when the playback has
         not continued in the meantime, so that a short voice interaction
@@ -687,6 +714,8 @@ class MediaRenderer:
         return self._apply_echo_end(track_id, state, position)
 
     def _echo_report_applies(self, track_id: str, state: str) -> bool:
+        if self._client_stop_pending:
+            return False
         if self.track.get('id') != track_id:
             return False
         if self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
@@ -714,11 +743,11 @@ class MediaRenderer:
             self._cancel_advance()
             self._echo_pause_confirmed = state == 'PAUSED'
             self._echo_left_track = track_id
-            new_state = TRANSPORT_PAUSED if state == 'PAUSED' else TRANSPORT_STOPPED
+            self._echo_detached = True
 
-        logger.info('The Echo of the renderer %s left the skill, the playback is now %s.',
-                    self.friendly_name, new_state)
-        self._set_transport_state(new_state)
+        logger.info('The Echo of the renderer %s left the skill (%s), the renderer is paused.',
+                    self.friendly_name, state)
+        self._set_transport_state(TRANSPORT_PAUSED)
         return True
 
     def echo_released(self) -> bool:
@@ -733,13 +762,15 @@ class MediaRenderer:
         """
 
         with self._queue_lock:
-            if self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+            if self._client_stop_pending or self.transport_state not in (TRANSPORT_PLAYING, TRANSPORT_PAUSED):
+                return False
+            if self._echo_detached and self.started_at is None:
                 return False
             self._release()
 
         logger.info('The Echo of the renderer %s plays other music of the skill, the renderer is released.',
                     self.friendly_name)
-        self._set_transport_state(TRANSPORT_STOPPED)
+        self._set_transport_state(TRANSPORT_PAUSED)
         return True
 
     def sync_foreign_media(self, state: str, started_at=None) -> None:
@@ -755,7 +786,8 @@ class MediaRenderer:
         """
 
         with self._queue_lock:
-            if started_at != self.started_at or self.transport_state != TRANSPORT_PLAYING:
+            if (started_at != self.started_at or self.transport_state != TRANSPORT_PLAYING
+                    or self._echo_detached):
                 self._foreign_media_polls = 0
                 return
             if (state or '').upper() != 'PLAYING' or not self._echo_playback_confirmed:
@@ -767,12 +799,14 @@ class MediaRenderer:
 
         logger.info('The Echo of the renderer %s plays other media, the renderer is released.',
                     self.friendly_name)
-        self._set_transport_state(TRANSPORT_STOPPED)
+        self._set_transport_state(TRANSPORT_PAUSED)
 
     def _release(self) -> None:
         """Forget the playback of the renderer without a command to the Echo.
 
-        The caller holds the queue lock and sets the transport state.
+        The caller holds the queue lock and sets the transport state.  The
+        renderer shows the track as paused, a Play of the client starts it
+        again from the beginning.
         """
 
         self._foreign_media_polls = 0
@@ -786,6 +820,7 @@ class MediaRenderer:
         self._echo_playback_confirmed = False
         self._echo_pause_confirmed = False
         self._echo_left_track = ''
+        self._echo_detached = True
 
     def echo_playback_resumed(self, track_id: str, position=None) -> bool:
         """Follow the Echo when the skill plays a track again.
@@ -816,6 +851,7 @@ class MediaRenderer:
             if position is None:
                 position = self._paused_elapsed
             self._echo_left_track = ''
+            self._echo_detached = False
             self._echo_playback_confirmed = True
             self._echo_pause_confirmed = False
             self.transport_status = 'OK'
@@ -837,6 +873,8 @@ class MediaRenderer:
 
         self._set_transport_state(TRANSPORT_TRANSITIONING)
         self._echo_playback_confirmed = False
+        self._echo_detached = False
+        self._echo_left_track = ''
 
         try:
             self._command('play', track=self.track)
@@ -870,13 +908,25 @@ class MediaRenderer:
         return {}
 
     def stop(self) -> dict:
+        # The skill reports the stop of the Echo back to the renderer, the
+        # report must not turn the stop of the client into a pause.
+        self._client_stop_pending = True
         try:
             self._command('stop')
         except RendererCommandError as error:
             raise SoapError(str(error), 701) from None
+        finally:
+            self._client_stop_pending = False
 
-        self._cancel_advance()
-        self.started_at = None
+        with self._queue_lock:
+            self._cancel_advance()
+            self._echo_stop_generation += 1
+            if self._echo_stop_timer:
+                self._echo_stop_timer.cancel()
+                self._echo_stop_timer = None
+            self._echo_detached = False
+            self._echo_left_track = ''
+            self.started_at = None
         self._set_transport_state(TRANSPORT_STOPPED)
 
         return {}
@@ -922,7 +972,7 @@ class MediaRenderer:
 
     def get_position_info(self) -> dict:
         duration = int(self.track.get('duration') or 0)
-        elapsed = self.elapsed_seconds()
+        elapsed = self._paused_elapsed if self.transport_state == TRANSPORT_PAUSED else self.elapsed_seconds()
 
         return {
             'Track': str(max(self.queue_index + 1, 1)),
