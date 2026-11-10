@@ -111,10 +111,10 @@ NAVI_ALEXA_DOMAIN=amazon.de
 
 ### Step 2: Start the container and log in through the browser
 
-1. Build and start the containers:
+1. Start the containers:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Open the cookie login page in your browser (Basic Auth; the username can be anything, the password is `NAVI_ALEXA_CAPTURE_PASSWORD`):
@@ -155,7 +155,7 @@ If the browser capture does not work (e.g. due to a CAPTCHA or an additional ver
 2. Open the Developer Tools (F12), go to **Application → Cookies** and select your Amazon domain.
 3. Copy the cookies as `name=value` pairs, one per line. Make sure the `csrf` cookie is included.
 4. Save the file as `.secrets/alexa.cookies` (or any path you like) and set `NAVI_ALEXA_COOKIE_FILE` to that path.
-5. Mount the file read-only in the container (see the `docker-compose.yml` example).
+5. Uncomment the `.secrets/alexa.cookies` mount in both services of the compose file (it is commented out by default). The file can be mounted read-only for a static fallback.
 
 > **Note:** `.secrets/`, `.env`, and the cookie/token files are not committed to Git (see `.gitignore`).
 
@@ -164,10 +164,10 @@ If the browser capture does not work (e.g. due to a CAPTCHA or an additional ver
 ## 7. Start Docker Compose
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-This builds the image and starts three containers:
+This pulls the published image and starts three containers:
 
 - `castnavidrome` — the Alexa skill web service (Flask)
 - `castnavidrome-renderer` (optional) — exposes each Alexa device as its own UPnP media renderer (uses host network for SSDP)
@@ -176,13 +176,13 @@ This builds the image and starts three containers:
 ### Start only the skill (without Tailscale)
 
 ```bash
-docker compose up -d --build castnavidrome
+docker compose up -d castnavidrome
 ```
 
 ### Start only the renderer
 
 ```bash
-docker compose up -d --build castnavidrome-renderer
+docker compose up -d castnavidrome-renderer
 ```
 
 ---

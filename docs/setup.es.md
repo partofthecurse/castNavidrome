@@ -107,10 +107,10 @@ NAVI_ALEXA_DOMAIN=amazon.de
 
 ### Paso 2: Iniciar el contenedor e inicia sessión por navegador
 
-1. Construye e inicia los contenedores:
+1. Inicia los contenedores:
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 2. Abre en el navegador la URL de captura de cookies (Basic Auth; el nombre de usuario puede ser cualquier cosa, la contraseña es `NAVI_ALEXA_CAPTURE_PASSWORD`):
@@ -151,6 +151,7 @@ Si el inicio de sesión OAuth no funciona (p. ej. por CAPTCHA o pasos de verific
 2. Exporta la cookie de sesión (p. ej. con la extensión "Export Cookies" o las herramientas de desarrollo).
 3. Guarda las cookies como `.secrets/alexa.cookies` en la carpeta del proyecto.
 4. Establece `NAVI_ALEXA_COOKIE_FILE=/run/secrets/alexa.cookies` en `.env`.
+5. Descomenta el montaje `.secrets/alexa.cookies` en ambos servicios del archivo Compose (está comentado por defecto).
 
 > **Nota:** `.secrets/`, `.env` y el archivo de token no se suben a Git (ver `.gitignore`).
 
@@ -159,10 +160,10 @@ Si el inicio de sesión OAuth no funciona (p. ej. por CAPTCHA o pasos de verific
 ## 7. Iniciar Docker Compose
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-Esto construye la imagen e inicia tres contenedores:
+Esto descarga la imagen publicada e inicia tres contenedores:
 
 - `castnavidrome` — el servicio web de la Alexa skill (Flask)
 - `castnavidrome-renderer` (opcional) — expone cada dispositivo Alexa como su propio media renderer UPnP (usa red del host para SSDP)
@@ -171,13 +172,13 @@ Esto construye la imagen e inicia tres contenedores:
 ### Iniciar solo la skill (sin Tailscale)
 
 ```bash
-docker compose up -d --build castnavidrome
+docker compose up -d castnavidrome
 ```
 
 ### Iniciar solo el renderer
 
 ```bash
-docker compose up -d --build castnavidrome-renderer
+docker compose up -d castnavidrome-renderer
 ```
 
 ---
